@@ -1,18 +1,30 @@
 import os
+import sys
 import uuid
 import threading
 import time
 import json
-from typing import Optional, List, Any, Union
-from fastapi import FastAPI, File, UploadFile, Form, BackgroundTasks, HTTPException
+import base64
+import cv2
+import numpy as np
+from typing import Optional, List, Dict, Any, Union
+from fastapi import FastAPI, File, UploadFile, Form, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
-from engine.face_swap_engine import FaceSwapEngine
+# Ensure backend directory is in sys.path
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+if BACKEND_DIR not in sys.path:
+    sys.path.insert(0, BACKEND_DIR)
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+try:
+    from engine.face_swap_engine import FaceSwapEngine
+except ImportError:
+    from backend.engine.face_swap_engine import FaceSwapEngine
+
+BASE_DIR = os.path.dirname(BACKEND_DIR)
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
 SAMPLES_DIR = os.path.join(BASE_DIR, "samples")
@@ -579,6 +591,185 @@ def get_templates():
         "target_photos": sample_targets,
         "videos": sample_videos
     }
+
+# ==========================================
+# WEBRTC VIDEO CALL SIGNALING & LIVE SWAP
+# ==========================================
+
+class RoomManager:
+    def __init__(self):
+        self.rooms: Dict[str, Dict[str, WebSocket]] = {}
+
+    async def connect(self, room_id: str, client_id: str, websocket: WebSocket):
+        await websocket.accept()
+        if room_id not in self.rooms:
+            self.rooms[room_id] = {}
+        self.rooms[room_id][client_id] = websocket
+        
+        # Notify other peers in the room
+        await self.broadcast_to_room(room_id, {
+            "type": "user-joined",
+            "client_id": client_id,
+            "participants": list(self.rooms[room_id].keys())
+        }, exclude_client=client_id)
+        
+        # Send current participants list to the new user
+        await websocket.send_json({
+            "type": "room-info",
+            "room_id": room_id,
+            "client_id": client_id,
+            "participants": list(self.rooms[room_id].keys())
+        })
+
+    async def disconnect(self, room_id: str, client_id: str):
+        if room_id in self.rooms and client_id in self.rooms[room_id]:
+            del self.rooms[room_id][client_id]
+            if not self.rooms[room_id]:
+                del self.rooms[room_id]
+            else:
+                await self.broadcast_to_room(room_id, {
+                    "type": "user-left",
+                    "client_id": client_id,
+                    "participants": list(self.rooms[room_id].keys())
+                })
+
+    async def send_to_peer(self, room_id: str, target_client_id: str, message: dict):
+        if room_id in self.rooms and target_client_id in self.rooms[room_id]:
+            try:
+                await self.rooms[room_id][target_client_id].send_json(message)
+            except Exception as e:
+                print(f"[RoomManager] Error sending to peer {target_client_id}: {e}")
+
+    async def broadcast_to_room(self, room_id: str, message: dict, exclude_client: Optional[str] = None):
+        if room_id in self.rooms:
+            for cid, ws in list(self.rooms[room_id].items()):
+                if exclude_client and cid == exclude_client:
+                    continue
+                try:
+                    await ws.send_json(message)
+                except Exception as e:
+                    print(f"[RoomManager] Error broadcasting to {cid}: {e}")
+
+room_manager = RoomManager()
+
+@app.post("/api/live/set-source")
+async def set_live_source(
+    source_files: Optional[List[UploadFile]] = File(None),
+    preset_name: Optional[str] = Form(None)
+):
+    """Registers and pre-computes 3D face identity embedding for real-time live webcam and video calling."""
+    engine = FaceSwapEngine.get_instance()
+    if not engine.is_initialized:
+        engine.initialize()
+
+    source_id = f"src_{uuid.uuid4().hex[:8]}"
+    try:
+        if preset_name:
+            preset_path = os.path.join(SAMPLES_DIR, preset_name)
+            if not os.path.exists(preset_path):
+                raise HTTPException(status_code=404, detail="Preset image not found")
+            engine.register_live_source(source_id, [preset_path])
+        elif source_files:
+            bytes_list = []
+            for sf in source_files:
+                content = await sf.read()
+                if len(content) > 0:
+                    bytes_list.append(content)
+            if not bytes_list:
+                raise HTTPException(status_code=400, detail="Empty source files")
+            engine.register_live_source_from_bytes(source_id, bytes_list)
+        else:
+            raise HTTPException(status_code=400, detail="No source file or preset provided")
+
+        return {"status": "success", "source_id": source_id, "message": "Live face identity initialized"}
+    except Exception as e:
+        print(f"[LiveSource] Error setting live source: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.websocket("/ws/live-swap")
+async def websocket_live_swap(websocket: WebSocket):
+    """Real-time webcam streaming face swap endpoint."""
+    await websocket.accept()
+    engine = FaceSwapEngine.get_instance()
+    if not engine.is_initialized:
+        try:
+            engine.initialize()
+        except Exception as e:
+            print(f"[WebSocket Live] Engine init error: {e}")
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            t_start = time.time()
+            
+            frame_b64 = data.get("frame")
+            source_id = data.get("source_id")
+            fast_mode = data.get("fast_mode", True)
+            use_enhancer = data.get("use_enhancer", False)
+            color_strength = float(data.get("color_strength", 0.25))
+
+            if not frame_b64:
+                continue
+
+            if "," in frame_b64:
+                frame_b64 = frame_b64.split(",", 1)[1]
+            
+            img_bytes = base64.b64decode(frame_b64)
+            nparr = np.frombuffer(img_bytes, np.uint8)
+            frame_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+            if frame_bgr is None:
+                await websocket.send_json({"error": "Failed to decode frame", "detected": False})
+                continue
+
+            swapped_bgr, detected = engine.swap_frame_live(
+                frame_bgr,
+                source_id=source_id,
+                use_enhancer=use_enhancer,
+                color_strength=color_strength,
+                fast_mode=fast_mode
+            )
+
+            # JPEG compress for fast network transfer
+            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80 if fast_mode else 90]
+            _, buffer = cv2.imencode('.jpg', swapped_bgr, encode_param)
+            out_b64 = base64.b64encode(buffer).decode('utf-8')
+            
+            latency_ms = round((time.time() - t_start) * 1000, 1)
+
+            await websocket.send_json({
+                "frame": f"data:image/jpeg;base64,{out_b64}",
+                "detected": detected,
+                "latency_ms": latency_ms
+            })
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"[WebSocket Live] Error: {e}")
+
+@app.websocket("/ws/video-call/{room_id}/{client_id}")
+async def websocket_video_call(websocket: WebSocket, room_id: str, client_id: str):
+    """WebRTC video call signaling hub (supports peer-to-peer audio/video streaming)."""
+    await room_manager.connect(room_id, client_id, websocket)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            target_client = data.get("target")
+            
+            data["sender"] = client_id
+            data["room_id"] = room_id
+
+            if target_client:
+                await room_manager.send_to_peer(room_id, target_client, data)
+            else:
+                await room_manager.broadcast_to_room(room_id, data, exclude_client=client_id)
+
+    except WebSocketDisconnect:
+        await room_manager.disconnect(room_id, client_id)
+    except Exception as e:
+        print(f"[WebRTC Call] Error in room {room_id} for client {client_id}: {e}")
+        await room_manager.disconnect(room_id, client_id)
 
 @app.get("/api/download/{filename}")
 def download_file(filename: str):

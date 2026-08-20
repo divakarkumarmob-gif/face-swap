@@ -190,6 +190,8 @@ class FaceSwapEngine:
         self.model_path = None
         self.enhancer_path = None
         self._cached_mask_512 = None
+        self._cached_mask_256 = None
+        self.live_sources = {}
         
     @classmethod
     def get_instance(cls):
@@ -826,3 +828,154 @@ class FaceSwapEngine:
                 pass
                 
         return output_video_path
+
+    def register_live_source(self, source_id: str, image_paths: List[str]) -> Dict[str, Any]:
+        """Precomputes and caches 3D identity embedding for live camera & video call streaming."""
+        if not self.is_initialized:
+            self.initialize()
+            
+        source_imgs = []
+        for p in image_paths:
+            img = cv2.imread(p)
+            if img is not None:
+                source_imgs.append(img)
+                
+        if not source_imgs:
+            raise ValueError("No valid image could be read for live source.")
+            
+        master_emb = self.get_multi_source_master_embedding(source_imgs)
+        self.live_sources[source_id] = {
+            "embedding": master_emb,
+            "timestamp": time.time()
+        }
+        return {"source_id": source_id, "status": "ready"}
+
+    def register_live_source_from_bytes(self, source_id: str, image_bytes_list: List[bytes]) -> Dict[str, Any]:
+        """Registers a live source from uploaded image bytes."""
+        if not self.is_initialized:
+            self.initialize()
+            
+        source_imgs = []
+        for b in image_bytes_list:
+            nparr = np.frombuffer(b, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if img is not None:
+                source_imgs.append(img)
+                
+        if not source_imgs:
+            raise ValueError("No valid images provided.")
+            
+        master_emb = self.get_multi_source_master_embedding(source_imgs)
+        self.live_sources[source_id] = {
+            "embedding": master_emb,
+            "timestamp": time.time()
+        }
+        return {"source_id": source_id, "status": "ready"}
+
+    def swap_frame_live(
+        self,
+        frame_bgr: np.ndarray,
+        source_id: Optional[str] = None,
+        source_embedding: Optional[np.ndarray] = None,
+        use_enhancer: bool = False,
+        color_strength: float = 0.25,
+        fast_mode: bool = True
+    ) -> Tuple[np.ndarray, bool]:
+        """
+        Ultra low-latency live frame face swapper for webcam streaming and WebRTC video calls.
+        Returns (swapped_frame_bgr, face_detected_bool).
+        """
+        if not self.is_initialized:
+            self.initialize()
+
+        norm_emb = None
+        if source_embedding is not None:
+            norm_emb = source_embedding
+        elif source_id and source_id in self.live_sources:
+            norm_emb = self.live_sources[source_id]["embedding"]
+
+        if norm_emb is None:
+            return frame_bgr, False
+
+        # Detect faces in live frame
+        faces = self.app.get(frame_bgr)
+        if not faces:
+            return frame_bgr, False
+
+        # Primary face
+        target_face = sorted(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse=True)[0]
+        
+        # 1. Standard InSwapper Crop
+        aimg, M = face_align.norm_crop2(frame_bgr, target_face.kps, 128)
+        
+        # 2. Inference
+        blob = cv2.dnn.blobFromImage(
+            aimg, 1.0 / self.swapper.input_std, (128, 128),
+            (self.swapper.input_mean, self.swapper.input_mean, self.swapper.input_mean),
+            swapRB=True
+        )
+        
+        latent = norm_emb.reshape((1, -1))
+        latent = np.dot(latent, self.swapper.emap)
+        latent /= np.linalg.norm(latent)
+        
+        pred = self.swapper.session.run(
+            self.swapper.output_names,
+            {self.swapper.input_names[0]: blob, self.swapper.input_names[1]: latent}
+        )[0]
+        
+        img_fake = pred.transpose((0, 2, 3, 1))[0]
+        bgr_fake = np.clip(255 * img_fake, 0, 255).astype(np.uint8)[:, :, ::-1]
+
+        # Resolution scaling
+        res_size = 256 if fast_mode else 512
+        scale_fac = 2.0 if fast_mode else 4.0
+        M_scaled = M * scale_fac
+
+        bgr_fake_scaled = cv2.resize(bgr_fake, (res_size, res_size), interpolation=cv2.INTER_LINEAR)
+        aimg_scaled = cv2.resize(aimg, (res_size, res_size), interpolation=cv2.INTER_LINEAR)
+
+        # Fast color harmonization
+        if color_strength > 0.05:
+            bgr_fake_harmonized = color_transfer(bgr_fake_scaled, aimg_scaled, strength=color_strength)
+        else:
+            bgr_fake_harmonized = bgr_fake_scaled
+
+        # Optional detail enhancer (only when not in ultra-fast mode)
+        if use_enhancer and self.enhancer_session is not None and not fast_mode:
+            bgr_fake_final = self.enhance_face(bgr_fake_harmonized, fidelity=0.85, sharpen_amount=0.15)
+        else:
+            bgr_fake_final = bgr_fake_harmonized
+
+        # Smooth anatomical mask
+        if res_size == 512:
+            mask = self._cached_mask_512
+        else:
+            if not hasattr(self, '_cached_mask_256') or self._cached_mask_256 is None:
+                self._cached_mask_256 = create_face_mask(256)
+            mask = self._cached_mask_256
+
+        # Invert affine and warp back onto original frame
+        IM = cv2.invertAffineTransform(M_scaled)
+        h, w = frame_bgr.shape[:2]
+
+        warped_face = cv2.warpAffine(
+            bgr_fake_final, IM, (w, h),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REFLECT_101
+        )
+        warped_mask = cv2.warpAffine(
+            mask, IM, (w, h),
+            flags=cv2.INTER_LINEAR,
+            borderValue=0.0
+        )
+        warped_mask_3d = np.repeat(warped_mask[:, :, np.newaxis], 3, axis=2)
+
+        # Alpha composite
+        target_f = frame_bgr.astype(np.float32)
+        warped_f = warped_face.astype(np.float32)
+        blended = warped_mask_3d * warped_f + (1.0 - warped_mask_3d) * target_f
+        result = np.clip(blended, 0, 255).astype(np.uint8)
+
+        return result, True
+

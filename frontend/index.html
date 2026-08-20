@@ -60,6 +60,16 @@
                         <span>Face Swap Video</span>
                         <span class="tab-pill">Up to 30s</span>
                     </button>
+                    <button type="button" class="mode-tab" id="tabLiveRecord" data-mode="live-record">
+                        <i class="fa-solid fa-video"></i>
+                        <span>Live Camera & Record</span>
+                        <span class="tab-pill live-pill"><i class="fa-solid fa-circle"></i> Live AI</span>
+                    </button>
+                    <button type="button" class="mode-tab" id="tabVideoCall" data-mode="video-call">
+                        <i class="fa-solid fa-headset"></i>
+                        <span>AI Video Call</span>
+                        <span class="tab-pill call-pill"><i class="fa-solid fa-bolt"></i> WebRTC</span>
+                    </button>
                 </div>
             </div>
         </section>
@@ -331,6 +341,310 @@
                     <span class="btn-glow"></span>
                     <i class="fa-solid fa-wand-magic-sparkles"></i>
                     <span class="btn-text">Generate Face Swapped Video</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- ============================================== -->
+        <!-- LIVE CAMERA & VIDEO RECORDING CONTAINER -->
+        <!-- ============================================== -->
+        <section class="studio-mode-container hidden" id="liveRecordContainer">
+            <div class="studio-grid">
+                <!-- Left Side: Source Face Photo (Input for Live Swap) -->
+                <div class="card source-card">
+                    <div class="card-header">
+                        <div class="card-badge"><i class="fa-solid fa-user-astronaut"></i> Live Face Mask • Step 1</div>
+                        <h2>Select Face for Live Cam</h2>
+                        <p>Upload or pick the character/face to swap onto your live camera</p>
+                    </div>
+
+                    <div class="upload-dropzone" id="liveSourceDropzone">
+                        <input type="file" id="liveSourceFileInput" accept="image/png, image/jpeg, image/webp" multiple hidden>
+                        
+                        <div class="dropzone-empty" id="liveSourceEmptyState">
+                            <div class="upload-icon-circle">
+                                <i class="fa-solid fa-camera-rotate"></i>
+                            </div>
+                            <h3>Input Face Photo (1 to 4 Photos)</h3>
+                            <p class="file-limits">Select photos for high-accuracy live 3D face swap</p>
+                            <button type="button" class="btn btn-outline" id="btnBrowseLiveSource"><i class="fa-solid fa-images"></i> Browse Photo(s)</button>
+                        </div>
+
+                        <div class="preview-container hidden" id="liveSourcePreviewState">
+                            <img id="liveSourcePreviewImg" src="" alt="Live Source Face">
+                            <div class="preview-overlay">
+                                <span class="face-tag" id="liveSourceFusionBadge"><i class="fa-solid fa-bolt"></i> Live 3D Mask Ready</span>
+                                <button type="button" class="btn-icon btn-remove" id="btnRemoveLiveSource" title="Remove Face">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Multi-Photo 3D Fusion Gallery Tray (Live Mode) -->
+                    <div class="multi-photos-gallery hidden" id="liveMultiGallery">
+                        <div class="gallery-header">
+                            <span class="gallery-title"><i class="fa-solid fa-layer-group"></i> Multi-Photo 3D Fusion (<span id="liveCountBadge">0</span>/4)</span>
+                            <button type="button" class="btn-gallery-add" id="btnAddMoreLiveSource"><i class="fa-solid fa-plus"></i> Add Angle</button>
+                        </div>
+                        <div class="gallery-thumbnails-grid" id="liveMultiThumbnails"></div>
+                    </div>
+
+                    <!-- Live Demo Face Presets -->
+                    <div class="presets-section">
+                        <span class="presets-title"><i class="fa-solid fa-masks-theater"></i> Or pick a demo character:</span>
+                        <div class="presets-row" id="liveSourcePresetsRow">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Side: Live Webcam Viewport & Recording Card -->
+                <div class="card target-card live-viewport-card">
+                    <div class="card-header">
+                        <div class="card-badge live-badge"><i class="fa-solid fa-circle"></i> Live Webcam Feed • Step 2</div>
+                        <h2>Live Camera & Real-Time Swap</h2>
+                        <p>Real-time AI face transformation with audio recording & instant snapshot</p>
+                    </div>
+
+                    <div class="live-viewport-container" id="liveViewportContainer">
+                        <!-- Hidden Video Element for Webcam Capture -->
+                        <video id="liveWebcamVideo" playsinline autoplay muted style="display:none;"></video>
+
+                        <!-- Primary Swapped Display Canvas -->
+                        <canvas id="liveSwapCanvas" width="640" height="480"></canvas>
+
+                        <!-- Camera Off Placeholder -->
+                        <div class="live-cam-placeholder" id="liveCamPlaceholder">
+                            <div class="cam-placeholder-icon">
+                                <i class="fa-solid fa-video-slash"></i>
+                            </div>
+                            <h3>Webcam is Currently Turned Off</h3>
+                            <p>Click "Start Camera" below to begin live real-time face swapping</p>
+                            <button type="button" class="btn btn-primary" id="btnStartCamFromPlaceholder">
+                                <i class="fa-solid fa-camera"></i> Start Camera
+                            </button>
+                        </div>
+
+                        <!-- Top Floating HUD -->
+                        <div class="live-hud-top">
+                            <div class="hud-pill hud-live" id="liveStatusHud">
+                                <span class="hud-dot"></span> <span id="liveStatusText">Camera Off</span>
+                            </div>
+                            <div class="hud-pill" id="liveFpsBadge" title="Frames Per Second">
+                                <i class="fa-solid fa-gauge-high"></i> <span id="liveFpsVal">0</span> FPS
+                            </div>
+                            <div class="hud-pill" id="liveLatencyBadge" title="Processing Latency">
+                                <i class="fa-solid fa-bolt"></i> <span id="liveLatencyVal">0</span> ms
+                            </div>
+                            <div class="hud-pill hud-face" id="liveFaceStatusBadge">
+                                <i class="fa-solid fa-face-smile"></i> <span id="liveFaceStatusText">Searching Face</span>
+                            </div>
+                            <div class="hud-pill hud-recording hidden" id="liveRecordingTimerPill">
+                                <span class="rec-pulsing-dot"></span> REC <span id="liveRecordDurationText">00:00</span>
+                            </div>
+                        </div>
+
+                        <!-- Floating Quick Controls on Viewport -->
+                        <div class="live-viewport-toolbar">
+                            <button type="button" class="viewport-btn" id="btnFlipCamera" title="Mirror/Flip Camera">
+                                <i class="fa-solid fa-arrows-rotate"></i>
+                            </button>
+                            <button type="button" class="viewport-btn" id="btnSnapshotQuick" title="Take Instant Photo Snapshot">
+                                <i class="fa-solid fa-camera-retro"></i>
+                            </button>
+                            <button type="button" class="viewport-btn active" id="btnToggleLiveSwapOnCanvas" title="Toggle Face Swap ON/OFF">
+                                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Live Quality & Performance Controls -->
+                    <div class="live-controls-bar">
+                        <div class="live-setting-group">
+                            <label class="toggle-control" title="Optimized for highest frame rates (20-30 FPS)">
+                                <input type="checkbox" id="toggleLiveFastMode" checked>
+                                <span class="toggle-switch"></span>
+                                <span class="toggle-label"><i class="fa-solid fa-gauge-simple-high"></i> Ultra-Fast Mode</span>
+                            </label>
+
+                            <label class="toggle-control" title="Restores HD neural detail at 512x512">
+                                <input type="checkbox" id="toggleLiveEnhancer">
+                                <span class="toggle-switch"></span>
+                                <span class="toggle-label"><i class="fa-solid fa-wand-magic"></i> HD Enhancer</span>
+                            </label>
+                        </div>
+
+                        <div class="live-resolution-picker">
+                            <label for="liveResolutionSelect"><i class="fa-solid fa-display"></i> Quality:</label>
+                            <select id="liveResolutionSelect" class="form-select-sm">
+                                <option value="480p" selected>480p (Fast • 640x480)</option>
+                                <option value="720p">720p (HD • 1280x720)</option>
+                                <option value="360p">360p (Ultra Fast • 480x360)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Action & Recording Control Bar -->
+            <div class="action-panel live-action-panel">
+                <div class="live-main-actions">
+                    <button type="button" class="btn btn-outline btn-cam-toggle" id="btnToggleCamera">
+                        <i class="fa-solid fa-video"></i> <span id="btnToggleCameraText">Start Camera</span>
+                    </button>
+
+                    <button type="button" class="btn btn-danger btn-record" id="btnStartRecording" disabled>
+                        <span class="btn-rec-dot"></span>
+                        <i class="fa-solid fa-circle-dot"></i>
+                        <span id="btnRecordText">Start Recording Video</span>
+                    </button>
+
+                    <button type="button" class="btn btn-warning btn-pause-rec hidden" id="btnPauseRecording">
+                        <i class="fa-solid fa-pause"></i> <span id="btnPauseText">Pause</span>
+                    </button>
+
+                    <button type="button" class="btn btn-outline" id="btnTakeLiveSnapshot" disabled>
+                        <i class="fa-solid fa-camera"></i> <span>Take Photo Snapshot</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Live Recording Result / Preview Drawer -->
+            <div class="live-record-result-card hidden" id="liveRecordResultCard">
+                <div class="result-player-card">
+                    <div class="player-header-row">
+                        <div class="player-label"><i class="fa-solid fa-circle-check" style="color: #22c55e;"></i> Recorded Swapped Video Ready</div>
+                        <span class="version-badge" id="recordedDurationBadge"><i class="fa-solid fa-clock"></i> 00:00</span>
+                    </div>
+                    <div class="media-wrapper">
+                        <video id="liveRecordedVideoPlayer" class="result-vid" controls playsinline></video>
+                    </div>
+                    <div class="player-actions">
+                        <a id="btnDownloadRecordedVideo" href="#" download="live_face_swapped_video.webm" class="btn btn-primary btn-download">
+                            <i class="fa-solid fa-download"></i> <span>Download Recorded Video</span>
+                        </a>
+                        <button type="button" class="btn btn-outline" id="btnCloseRecordedResult">
+                            <i class="fa-solid fa-xmark"></i> Close Preview
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================== -->
+        <!-- AI VIDEO CALL STUDIO CONTAINER (WEBRTC P2P) -->
+        <!-- ============================================== -->
+        <section class="studio-mode-container hidden" id="videoCallContainer">
+            <!-- Room Header & Call Setup Bar -->
+            <div class="call-top-bar">
+                <div class="call-room-controls">
+                    <button type="button" class="btn btn-primary" id="btnCreateCallRoom">
+                        <i class="fa-solid fa-plus-circle"></i> Create New Room
+                    </button>
+
+                    <div class="call-room-input-group">
+                        <i class="fa-solid fa-hashtag"></i>
+                        <input type="text" id="callRoomInput" placeholder="Enter Room Code (e.g. ROOM123)" maxlength="16">
+                        <button type="button" class="btn btn-outline" id="btnJoinCallRoom">
+                            <i class="fa-solid fa-arrow-right-to-bracket"></i> Join Call
+                        </button>
+                    </div>
+
+                    <button type="button" class="btn btn-outline btn-copy-link hidden" id="btnCopyCallLink" title="Copy Invite Link">
+                        <i class="fa-solid fa-link"></i> <span id="copyLinkText">Copy Link</span>
+                    </button>
+                </div>
+
+                <div class="call-status-indicator" id="callStatusIndicator">
+                    <span class="status-dot call-idle"></span>
+                    <span id="callStatusText">Ready to start video call</span>
+                </div>
+            </div>
+
+            <!-- Video Calling Stage Grid (Local & Remote Viewports) -->
+            <div class="video-call-stage">
+                <!-- Local Video Card (You) -->
+                <div class="call-peer-tile local-tile" id="callLocalTile">
+                    <div class="tile-header">
+                        <span class="tile-label"><i class="fa-solid fa-user"></i> You <span class="tile-tag-swap" id="localSwapTag">AI Swapped</span></span>
+                        <div class="tile-badges">
+                            <span class="hud-pill hud-sm" id="callLocalFpsBadge"><i class="fa-solid fa-gauge-high"></i> <span id="callLocalFpsVal">0</span> FPS</span>
+                        </div>
+                    </div>
+
+                    <div class="tile-media-container">
+                        <!-- Hidden Local Webcam Stream -->
+                        <video id="callLocalWebcamVideo" playsinline autoplay muted style="display:none;"></video>
+                        <!-- Local Swapped Canvas Sent over WebRTC -->
+                        <canvas id="callLocalCanvas" width="640" height="480"></canvas>
+                        
+                        <div class="tile-off-overlay" id="localCamOffOverlay">
+                            <i class="fa-solid fa-video-slash"></i>
+                            <p>Camera is off</p>
+                        </div>
+                    </div>
+
+                    <!-- In-Call Fast Face Switcher Drawer -->
+                    <div class="call-face-switcher-bar">
+                        <span class="face-switcher-label"><i class="fa-solid fa-masks-theater"></i> Live Face Mask:</span>
+                        <div class="call-face-avatars" id="callFaceAvatarsRow">
+                            <!-- Populated by JS -->
+                        </div>
+                        <button type="button" class="btn-avatar-upload" id="btnUploadCustomCallFace" title="Upload Custom Face for Call">
+                            <i class="fa-solid fa-upload"></i>
+                            <input type="file" id="callCustomFaceInput" accept="image/*" hidden>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Remote Video Card (Other Caller) -->
+                <div class="call-peer-tile remote-tile" id="callRemoteTile">
+                    <div class="tile-header">
+                        <span class="tile-label"><i class="fa-solid fa-user-group"></i> Remote Peer <span class="tile-tag-remote" id="remotePeerTag">Caller</span></span>
+                        <div class="tile-badges">
+                            <span class="hud-pill hud-sm hud-live hidden" id="remoteLivePill"><span class="hud-dot"></span> Connected</span>
+                        </div>
+                    </div>
+
+                    <div class="tile-media-container">
+                        <!-- Remote Video Stream -->
+                        <video id="callRemoteVideo" playsinline autoplay></video>
+
+                        <!-- Waiting for Peer Placeholder -->
+                        <div class="remote-waiting-overlay" id="remoteWaitingOverlay">
+                            <div class="waiting-spinner">
+                                <i class="fa-solid fa-spinner fa-spin"></i>
+                            </div>
+                            <h3>Waiting for Peer to Join Room...</h3>
+                            <p>Share the room code or invite link with a friend or open in another tab to test!</p>
+                            <button type="button" class="btn btn-outline btn-sm" id="btnShareCallCodeQuick">
+                                <i class="fa-solid fa-share-nodes"></i> Share Room Code: <strong id="callRoomCodeDisplay">---</strong>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Floating In-Call Control Dock -->
+            <div class="call-controls-dock" id="callControlsDock">
+                <button type="button" class="call-control-btn active" id="btnToggleCallMic" title="Mute/Unmute Mic">
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
+                <button type="button" class="call-control-btn active" id="btnToggleCallCam" title="Turn Camera On/Off">
+                    <i class="fa-solid fa-video"></i>
+                </button>
+                <button type="button" class="call-control-btn active accent-swap" id="btnToggleCallSwap" title="Toggle Face Swap">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                </button>
+                <button type="button" class="call-control-btn" id="btnToggleCallScreenShare" title="Share Screen">
+                    <i class="fa-solid fa-desktop"></i>
+                </button>
+                <button type="button" class="call-control-btn btn-call-record" id="btnToggleCallRecording" title="Record Video Call">
+                    <i class="fa-solid fa-circle-dot"></i>
+                </button>
+                <button type="button" class="call-control-btn btn-hangup" id="btnEndCall" title="Leave / End Call">
+                    <i class="fa-solid fa-phone-slash"></i>
                 </button>
             </div>
         </section>
