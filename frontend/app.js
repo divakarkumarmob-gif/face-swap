@@ -1085,8 +1085,17 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.detail || 'Failed to start regeneration');
+                let errMsg = 'Failed to start regeneration';
+                try {
+                    const err = await res.json();
+                    errMsg = err.detail || errMsg;
+                } catch (e) {
+                    try {
+                        const txt = await res.text();
+                        if (txt) errMsg = txt;
+                    } catch (_) {}
+                }
+                throw new Error(errMsg);
             }
 
             const data = await res.json();
@@ -1095,7 +1104,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (err) {
             hideProgressModal();
-            alert(`Regeneration Error: ${err.message}`);
+            alert(`Regeneration Notice: ${err.message}`);
         }
     });
 

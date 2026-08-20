@@ -431,12 +431,22 @@ async def regenerate_swap(req: RegenerateRequest):
         raise HTTPException(status_code=404, detail="Previous job not found. Please upload fresh media.")
     
     prev_job = jobs[req.job_id]
-    src_paths = prev_job.get("source_paths") or [prev_job.get("source_path")]
-    src_path = src_paths if len(src_paths) > 1 else src_paths[0]
+    raw_src = prev_job.get("source_paths") or prev_job.get("source_path")
+    src_paths = []
+    def _collect_paths(val):
+        if isinstance(val, str) and os.path.exists(val):
+            src_paths.append(val)
+        elif isinstance(val, (list, tuple)):
+            for v in val:
+                _collect_paths(v)
+    _collect_paths(raw_src)
+
     tgt_path = prev_job.get("target_path")
     
-    if not src_paths or not os.path.exists(src_paths[0]) or not tgt_path or not os.path.exists(tgt_path):
-        raise HTTPException(status_code=400, detail="Original source or target files are no longer available.")
+    if not src_paths or not tgt_path or not isinstance(tgt_path, str) or not os.path.exists(tgt_path):
+        raise HTTPException(status_code=400, detail="Original source or target files are no longer available. Please upload fresh media.")
+        
+    src_path = src_paths if len(src_paths) > 1 else src_paths[0]
         
     new_job_id = str(uuid.uuid4())[:8]
     job_type = prev_job.get("type", "photo")
@@ -485,7 +495,8 @@ async def regenerate_swap(req: RegenerateRequest):
         "progress": 0,
         "message": f"Regenerating ({preset_title})...",
         "created_at": time.time(),
-        "source_path": src_path,
+        "source_path": src_paths[0],
+        "source_paths": src_paths,
         "target_path": tgt_path,
         "parent_job_id": req.job_id,
         "iteration": new_iteration,
