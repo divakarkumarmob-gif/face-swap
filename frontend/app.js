@@ -105,6 +105,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const progressFrames = document.getElementById('progressFrames');
     const progressEta = document.getElementById('progressEta');
 
+    // Modal Window Top Controls & Floating Widget
+    const btnModalMinimize = document.getElementById('btnModalMinimize');
+    const btnModalClose = document.getElementById('btnModalClose');
+    const btnInlineMinimize = document.getElementById('btnInlineMinimize');
+
+    const floatingProgressWidget = document.getElementById('floatingProgressWidget');
+    const floatingBodyClickable = document.getElementById('floatingBodyClickable');
+    const floatingTitle = document.getElementById('floatingTitle');
+    const floatingPercent = document.getElementById('floatingPercent');
+    const floatingBarFill = document.getElementById('floatingBarFill');
+    const floatingFrames = document.getElementById('floatingFrames');
+    const floatingEta = document.getElementById('floatingEta');
+    const btnFloatingExpand = document.getElementById('btnFloatingExpand');
+    const btnFloatingCancel = document.getElementById('btnFloatingCancel');
+
     const resultsSection = document.getElementById('resultsSection');
     const resultsTitle = document.getElementById('resultsTitle');
     const resultsSubtitle = document.getElementById('resultsSubtitle');
@@ -936,25 +951,71 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // =========================================================================
-    // PROGRESS MODAL & POLLING
+    // PROGRESS MODAL & FLOATING BACKGROUND WIDGET LOGIC
     // =========================================================================
+    let isModalMinimized = false;
+
     function showProgressModal(title, msg) {
+        isModalMinimized = false;
         modalTitle.textContent = title;
         modalStatusText.textContent = msg;
         progressBarFill.style.width = "0%";
         progressPercent.textContent = "0%";
         progressFrames.textContent = "Starting AI Engine...";
         progressEta.innerHTML = `<i class="fa-solid fa-hourglass-half"></i> ETA: Calculating...`;
+
+        // Sync initial state of floating widget
+        if (floatingTitle) floatingTitle.textContent = title;
+        if (floatingPercent) floatingPercent.textContent = "0%";
+        if (floatingBarFill) floatingBarFill.style.width = "0%";
+        if (floatingFrames) floatingFrames.textContent = "Starting AI Engine...";
+        if (floatingEta) floatingEta.innerHTML = `<i class="fa-solid fa-hourglass-half"></i> ETA: --`;
+
         progressModal.classList.remove('hidden');
+        if (floatingProgressWidget) floatingProgressWidget.classList.add('hidden');
+    }
+
+    function minimizeProgressModal() {
+        isModalMinimized = true;
+        progressModal.classList.add('hidden');
+        if (floatingProgressWidget) {
+            floatingProgressWidget.classList.remove('hidden');
+        }
+    }
+
+    function expandProgressModal() {
+        isModalMinimized = false;
+        if (floatingProgressWidget) {
+            floatingProgressWidget.classList.add('hidden');
+        }
+        progressModal.classList.remove('hidden');
+    }
+
+    function cancelAndCloseJob() {
+        if (confirm("Are you sure you want to stop/close this face swap process?")) {
+            hideProgressModal();
+            state.currentJobId = null;
+        }
     }
 
     function hideProgressModal() {
         progressModal.classList.add('hidden');
+        if (floatingProgressWidget) floatingProgressWidget.classList.add('hidden');
         if (state.pollInterval) {
             clearInterval(state.pollInterval);
             state.pollInterval = null;
         }
     }
+
+    // Modal Control Button Listeners
+    if (btnModalMinimize) btnModalMinimize.addEventListener('click', minimizeProgressModal);
+    if (btnInlineMinimize) btnInlineMinimize.addEventListener('click', minimizeProgressModal);
+    if (btnModalClose) btnModalClose.addEventListener('click', cancelAndCloseJob);
+
+    // Floating Widget Control Listeners
+    if (btnFloatingExpand) btnFloatingExpand.addEventListener('click', expandProgressModal);
+    if (floatingBodyClickable) floatingBodyClickable.addEventListener('click', expandProgressModal);
+    if (btnFloatingCancel) btnFloatingCancel.addEventListener('click', cancelAndCloseJob);
 
     function startPolling(jobId, jobType) {
         state.pollInterval = setInterval(async () => {
@@ -963,21 +1024,39 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!res.ok) return;
 
                 const job = await res.json();
-                modalStatusText.textContent = job.message || "Processing...";
-                progressBarFill.style.width = `${job.progress || 0}%`;
-                progressPercent.textContent = `${job.progress || 0}%`;
+                const pct = job.progress || 0;
+                const msg = job.message || "Processing...";
 
+                // 1. Update Full Modal elements
+                modalStatusText.textContent = msg;
+                progressBarFill.style.width = `${pct}%`;
+                progressPercent.textContent = `${pct}%`;
+
+                // 2. Update Floating Widget elements
+                if (floatingPercent) floatingPercent.textContent = `${pct}%`;
+                if (floatingBarFill) floatingBarFill.style.width = `${pct}%`;
+
+                let framesText = "";
                 if (jobType === 'video' && job.current_frame && job.total_frames) {
-                    progressFrames.textContent = `Frame ${job.current_frame}/${job.total_frames}`;
+                    framesText = `Frame ${job.current_frame}/${job.total_frames}`;
                 } else if (jobType === 'photo') {
-                    progressFrames.textContent = job.progress >= 100 ? "Photo Completed" : "Processing Photo...";
+                    framesText = pct >= 100 ? "Photo Completed" : "Neural Face Enhancement...";
+                } else {
+                    framesText = msg;
                 }
 
+                progressFrames.textContent = framesText;
+                if (floatingFrames) floatingFrames.textContent = framesText;
+
+                let etaHtml = "";
                 if (job.eta) {
-                    progressEta.innerHTML = `<i class="fa-solid fa-hourglass-half"></i> ETA: ${job.eta}`;
+                    etaHtml = `<i class="fa-solid fa-hourglass-half"></i> ETA: ${job.eta}`;
                 } else {
-                    progressEta.innerHTML = `<i class="fa-solid fa-bolt"></i> Processing`;
+                    etaHtml = `<i class="fa-solid fa-bolt"></i> Processing`;
                 }
+
+                progressEta.innerHTML = etaHtml;
+                if (floatingEta) floatingEta.innerHTML = etaHtml;
 
                 if (job.status === 'completed') {
                     hideProgressModal();

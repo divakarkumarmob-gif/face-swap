@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=3.2">
+    <link rel="stylesheet" href="style.css?v=3.5">
 </head>
 <body>
     <!-- Background Glow Blobs -->
@@ -494,6 +494,19 @@
     <!-- Progress Modal -->
     <div class="modal-overlay hidden" id="progressModal">
         <div class="modal-card">
+            <!-- Modal Window Top Controls (Minimize & Close) -->
+            <div class="modal-top-bar">
+                <span class="modal-pill"><i class="fa-solid fa-microchip"></i> AI Engine Processing</span>
+                <div class="modal-actions-right">
+                    <button type="button" class="modal-btn-ctrl" id="btnModalMinimize" title="Minimize (-): Popup band hoga aur page par live progress show hoga">
+                        <i class="fa-solid fa-minus"></i>
+                    </button>
+                    <button type="button" class="modal-btn-ctrl btn-ctrl-close" id="btnModalClose" title="Cancel & Close (X)">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+
             <div class="modal-icon-spinner">
                 <div class="spinner-glow"></div>
                 <i class="fa-solid fa-bolt modal-pulse-icon"></i>
@@ -511,10 +524,45 @@
                 <span id="progressEta"><i class="fa-solid fa-hourglass-half"></i> ETA: --</span>
             </div>
 
-            <p class="modal-hint"><i class="fa-solid fa-circle-info"></i> High-fidelity deep neural face swapping with InsightFace and GFPGAN detail enhancement.</p>
+            <div class="modal-footer-hint">
+                <span class="btn-inline-min" id="btnInlineMinimize"><i class="fa-solid fa-window-minimize"></i> Minimize to Background</span>
+                <p class="modal-hint"><i class="fa-solid fa-circle-info"></i> InsightFace + GFPGAN HD Neural Processing.</p>
+            </div>
         </div>
     </div>
 
-    <script src="app.js?v=3.2"></script>
+    <!-- Floating In-Page Background Progress Widget -->
+    <div class="floating-progress-widget hidden" id="floatingProgressWidget">
+        <div class="floating-glow"></div>
+        <div class="floating-inner">
+            <div class="floating-spinner-wrap">
+                <div class="mini-spinner"></div>
+                <i class="fa-solid fa-bolt floating-bolt"></i>
+            </div>
+            <div class="floating-body" id="floatingBodyClickable" title="Click to expand popup">
+                <div class="floating-row-top">
+                    <span class="floating-title" id="floatingTitle">Processing Face Swap...</span>
+                    <span class="floating-percent" id="floatingPercent">0%</span>
+                </div>
+                <div class="floating-bar-bg">
+                    <div class="floating-bar-fill" id="floatingBarFill" style="width: 0%"></div>
+                </div>
+                <div class="floating-row-bottom">
+                    <span class="floating-frames" id="floatingFrames">Initializing AI...</span>
+                    <span class="floating-eta" id="floatingEta"><i class="fa-solid fa-hourglass-half"></i> ETA: --</span>
+                </div>
+            </div>
+            <div class="floating-controls">
+                <button type="button" class="btn-float-action" id="btnFloatingExpand" title="Expand popup">
+                    <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
+                </button>
+                <button type="button" class="btn-float-action btn-float-cancel" id="btnFloatingCancel" title="Cancel/Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=3.5"></script>
 </body>
 </html>
