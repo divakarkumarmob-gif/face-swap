@@ -24,6 +24,11 @@ try:
 except ImportError:
     from backend.engine.face_swap_engine import FaceSwapEngine
 
+try:
+    from virtual_cam_manager import VirtualCamManager
+except ImportError:
+    from backend.virtual_cam_manager import VirtualCamManager
+
 BASE_DIR = os.path.dirname(BACKEND_DIR)
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
@@ -686,11 +691,41 @@ async def set_live_source(
         print(f"[LiveSource] Error setting live source: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+class VirtualCamStartRequest(BaseModel):
+    width: Optional[int] = 640
+    height: Optional[int] = 480
+    fps: Optional[int] = 25
+
+@app.get("/api/virtualcam/status")
+def get_virtualcam_status():
+    """Check availability and status of system virtual camera (OBS/DirectShow)."""
+    manager = VirtualCamManager.get_instance()
+    return manager.check_availability()
+
+@app.post("/api/virtualcam/start")
+def start_virtualcam(req: VirtualCamStartRequest = VirtualCamStartRequest()):
+    """Start feeding swapped frames into the virtual camera."""
+    manager = VirtualCamManager.get_instance()
+    try:
+        res = manager.start(width=req.width, height=req.height, fps=req.fps)
+        return {"status": "success", "data": res}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/virtualcam/stop")
+def stop_virtualcam():
+    """Stop the virtual camera stream."""
+    manager = VirtualCamManager.get_instance()
+    res = manager.stop()
+    return {"status": "success", "data": res}
+
 @app.websocket("/ws/live-swap")
 async def websocket_live_swap(websocket: WebSocket):
-    """Real-time webcam streaming face swap endpoint."""
+    """Real-time webcam streaming face swap endpoint with optional Virtual Camera feed."""
     await websocket.accept()
     engine = FaceSwapEngine.get_instance()
+    vcam_manager = VirtualCamManager.get_instance()
+
     if not engine.is_initialized:
         try:
             engine.initialize()
@@ -707,6 +742,7 @@ async def websocket_live_swap(websocket: WebSocket):
             fast_mode = data.get("fast_mode", True)
             use_enhancer = data.get("use_enhancer", False)
             color_strength = float(data.get("color_strength", 0.25))
+            send_to_vcam = data.get("send_to_vcam", False)
 
             if not frame_b64:
                 continue
@@ -730,6 +766,10 @@ async def websocket_live_swap(websocket: WebSocket):
                 fast_mode=fast_mode
             )
 
+            # If virtual camera is active or requested, push frame
+            if vcam_manager.is_active or send_to_vcam:
+                vcam_manager.push_frame(swapped_bgr)
+
             # JPEG compress for fast network transfer
             encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80 if fast_mode else 90]
             _, buffer = cv2.imencode('.jpg', swapped_bgr, encode_param)
@@ -740,13 +780,15 @@ async def websocket_live_swap(websocket: WebSocket):
             await websocket.send_json({
                 "frame": f"data:image/jpeg;base64,{out_b64}",
                 "detected": detected,
-                "latency_ms": latency_ms
+                "latency_ms": latency_ms,
+                "vcam_active": vcam_manager.is_active
             })
 
     except WebSocketDisconnect:
         pass
     except Exception as e:
         print(f"[WebSocket Live] Error: {e}")
+
 
 @app.websocket("/ws/video-call/{room_id}/{client_id}")
 async def websocket_video_call(websocket: WebSocket, room_id: str, client_id: str):

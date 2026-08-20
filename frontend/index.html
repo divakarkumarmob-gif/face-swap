@@ -483,6 +483,34 @@
                                 <option value="360p">360p (Ultra Fast • 480x360)</option>
                             </select>
                         </div>
+                    <!-- Virtual Camera & WhatsApp Calling Control Card -->
+                    <div class="virtualcam-studio-card" id="vcamStudioCard">
+                        <div class="vcam-card-header">
+                            <div class="vcam-title-badge">
+                                <i class="fa-brands fa-whatsapp" style="color: #25D366; font-size: 1.25rem;"></i>
+                                <span>WhatsApp & Live App Streaming</span>
+                            </div>
+                            <div class="vcam-status-pill" id="vcamStatusPill">
+                                <span class="status-dot-mini" id="vcamStatusDot"></span>
+                                <span id="vcamStatusText">Virtual Cam: Standby</span>
+                            </div>
+                        </div>
+
+                        <p class="vcam-subtitle">Stream your live AI face swap directly into <strong>WhatsApp Video Call</strong>, <strong>Zoom</strong>, <strong>Google Meet</strong>, or <strong>OBS</strong>.</p>
+
+                        <div class="vcam-actions-row">
+                            <button type="button" class="btn btn-whatsapp-vcam" id="btnToggleVirtualCam">
+                                <i class="fa-solid fa-broadcast-tower"></i> <span id="btnToggleVirtualCamText">Start Virtual Camera (WhatsApp/Zoom)</span>
+                            </button>
+
+                            <button type="button" class="btn btn-outline btn-sm" id="btnPopoutCleanCam" title="Open borderless clean video window for screen sharing or OBS capture">
+                                <i class="fa-solid fa-window-restore"></i> Popout Clean Window
+                            </button>
+
+                            <button type="button" class="btn btn-outline btn-sm btn-guide" id="btnOpenWhatsAppGuide">
+                                <i class="fa-solid fa-circle-question"></i> WhatsApp Call Guide
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -518,6 +546,7 @@
                         <span class="version-badge" id="recordedDurationBadge"><i class="fa-solid fa-clock"></i> 00:00</span>
                     </div>
                     <div class="media-wrapper">
+
                         <video id="liveRecordedVideoPlayer" class="result-vid" controls playsinline></video>
                     </div>
                     <div class="player-actions">
@@ -877,6 +906,73 @@
         </div>
     </div>
 
-    <script src="app.js?v=3.5"></script>
+    <!-- WhatsApp / Zoom Calling Guide Modal -->
+    <div class="modal-overlay hidden" id="modalWhatsAppGuide">
+        <div class="modal-card vcam-guide-modal-card">
+            <div class="modal-header-row">
+                <div class="modal-title-with-icon">
+                    <div class="vcam-modal-icon"><i class="fa-brands fa-whatsapp"></i></div>
+                    <div>
+                        <h2>How to Call on WhatsApp with Live Face Swap</h2>
+                        <p class="modal-subtitle">Use your swapped video stream seamlessly in WhatsApp Desktop, Web, Zoom & Google Meet</p>
+                    </div>
+                </div>
+                <button type="button" class="btn-icon btn-modal-close" id="btnCloseWhatsAppGuide">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="vcam-steps-grid">
+                <!-- Step 1 -->
+                <div class="vcam-step-card">
+                    <div class="vcam-step-num">1</div>
+                    <div class="vcam-step-content">
+                        <h3>Start Live Swap in App</h3>
+                        <p>Select your desired face portrait on the left and click <strong>"Start Camera"</strong>. Verify that your face is swapping in real time.</p>
+                    </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div class="vcam-step-card">
+                    <div class="vcam-step-num">2</div>
+                    <div class="vcam-step-content">
+                        <h3>Enable Virtual Camera</h3>
+                        <p>Click the green <strong>"Start Virtual Camera"</strong> button. The app feeds real-time swapped frames into the virtual camera device.</p>
+                    </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div class="vcam-step-card">
+                    <div class="vcam-step-num">3</div>
+                    <div class="vcam-step-content">
+                        <h3>Select Camera in WhatsApp</h3>
+                        <p>Open <strong>WhatsApp Desktop</strong> (or Web). Go to <strong>Settings &gt; Audio & Video &gt; Camera</strong>, and select <strong>"OBS Virtual Camera"</strong>.</p>
+                    </div>
+                </div>
+
+                <!-- Step 4 -->
+                <div class="vcam-step-card">
+                    <div class="vcam-step-num">4</div>
+                    <div class="vcam-step-content">
+                        <h3>Start Your Video Call!</h3>
+                        <p>Call anyone on WhatsApp! They will see your AI face-swapped video stream in crystal-clear real time.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="vcam-modal-footer">
+                <div class="vcam-note">
+                    <i class="fa-solid fa-lightbulb"></i>
+                    <span><strong>Pro-Tip:</strong> If Virtual Camera is not installed yet, click <strong>"Popout Clean Window"</strong> and share that window via WhatsApp screen share or OBS Studio!</span>
+                </div>
+                <button type="button" class="btn btn-primary" id="btnGotItWhatsAppGuide">
+                    <i class="fa-solid fa-check"></i> Got It, Let's Go!
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=3.6"></script>
 </body>
+
 </html>

@@ -309,10 +309,10 @@ class FaceSwapEngine:
             self.initialize()
         return self.app.get(img_bgr)
 
-    def extract_unique_faces_from_video(self, video_path: str, output_dir: str, max_samples: int = 40) -> List[Dict[str, Any]]:
+    def extract_unique_faces_from_video(self, video_path: str, output_dir: str, max_samples: int = 60) -> List[Dict[str, Any]]:
         """
-        Samples video frames, extracts unique persons using face embedding similarity,
-        and saves cropped avatar previews.
+        Samples video frames, extracts unique persons using multi-angle centroid face clustering,
+        and saves cropped avatar previews representing each true individual in the video.
         """
         if not self.is_initialized:
             self.initialize()
@@ -324,64 +324,113 @@ class FaceSwapEngine:
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 100
         step = max(1, total_frames // max_samples)
 
-        unique_people = [] # List of {'embedding': ..., 'crop': ..., 'bbox': ...}
+        clusters = []  # List of {'embeddings': [...], 'centroid': ..., 'best_crop': ..., 'best_score': ..., 'count': int}
         frame_idx = 0
 
-        while cap.isOpened() and frame_idx < total_frames and len(unique_people) < 8:
+        while cap.isOpened() and frame_idx < total_frames:
             ret, frame = cap.read()
             if not ret:
                 break
 
             if frame_idx % step == 0:
                 faces = self.get_all_faces(frame)
+                h, w = frame.shape[:2]
                 for face in faces:
-                    # Check if face already clustered
-                    is_known = False
-                    for person in unique_people:
-                        sim = np.dot(face.normed_embedding, person['embedding'])
-                        if sim > 0.60:
-                            is_known = True
-                            break
+                    emb = face.normed_embedding
+                    bbox = face.bbox.astype(int)
+                    face_w = max(1, bbox[2] - bbox[0])
+                    face_h = max(1, bbox[3] - bbox[1])
+                    face_area = face_w * face_h
+                    if face_area < 500:  # Skip tiny/blurry background detections
+                        continue
 
-                    if not is_known:
-                        # Crop face with padding
-                        bbox = face.bbox.astype(int)
-                        h, w = frame.shape[:2]
-                        pad_w = int((bbox[2] - bbox[0]) * 0.25)
-                        pad_h = int((bbox[3] - bbox[1]) * 0.25)
-                        x1 = max(0, bbox[0] - pad_w)
-                        y1 = max(0, bbox[1] - pad_h)
-                        x2 = min(w, bbox[2] + pad_w)
-                        y2 = min(h, bbox[3] + pad_h)
+                    # Crop with margin
+                    pad_w = int(face_w * 0.25)
+                    pad_h = int(face_h * 0.25)
+                    x1 = max(0, bbox[0] - pad_w)
+                    y1 = max(0, bbox[1] - pad_h)
+                    x2 = min(w, bbox[2] + pad_w)
+                    y2 = min(h, bbox[3] + pad_h)
+                    crop = frame[y1:y2, x1:x2]
+                    if crop.size == 0:
+                        continue
 
-                        crop = frame[y1:y2, x1:x2]
-                        if crop.size > 0:
-                            unique_people.append({
-                                'embedding': face.normed_embedding.copy(),
-                                'crop': crop.copy(),
-                                'face_obj': face
+                    # Quality & frontality scoring: favor larger, more frontal faces
+                    score = float(face_area)
+                    if hasattr(face, 'kps') and face.kps is not None and len(face.kps) >= 5:
+                        eye_dist = np.linalg.norm(face.kps[0] - face.kps[1])
+                        # Measure symmetry of nose relative to eyes
+                        mid_eye = (face.kps[0] + face.kps[1]) / 2.0
+                        nose = face.kps[2]
+                        symmetry = 1.0 / (abs(mid_eye[0] - nose[0]) / max(1.0, eye_dist) + 0.1)
+                        score += eye_dist * 40 + symmetry * 100
+
+                    # Match against existing clusters with cosine similarity threshold of 0.44
+                    best_match_idx = -1
+                    best_match_sim = -1.0
+                    for c_idx, cluster in enumerate(clusters):
+                        sim_centroid = float(np.dot(emb, cluster['centroid']))
+                        sim_angles = max([float(np.dot(emb, e)) for e in cluster['embeddings']])
+                        sim = max(sim_centroid, sim_angles)
+
+                        if sim > best_match_sim:
+                            best_match_sim = sim
+                            best_match_idx = c_idx
+
+                    # 0.44 threshold clusters all angles of the same individual together
+                    if best_match_idx != -1 and best_match_sim >= 0.44:
+                        cl = clusters[best_match_idx]
+                        if len(cl['embeddings']) < 12:
+                            cl['embeddings'].append(emb.copy())
+                        cl['count'] += 1
+                        # Update centroid (normalized mean)
+                        all_embs = np.array(cl['embeddings'])
+                        mean_emb = np.mean(all_embs, axis=0)
+                        cl['centroid'] = mean_emb / (np.linalg.norm(mean_emb) + 1e-8)
+
+                        # If this crop is clearer/larger/more frontal, update preview crop
+                        if score > cl['best_score']:
+                            cl['best_crop'] = crop.copy()
+                            cl['best_score'] = score
+                    else:
+                        if len(clusters) < 8:  # Cap at top 8 unique people
+                            clusters.append({
+                                'embeddings': [emb.copy()],
+                                'centroid': emb.copy(),
+                                'best_crop': crop.copy(),
+                                'best_score': score,
+                                'count': 1
                             })
 
             frame_idx += 1
 
         cap.release()
 
+        # Sort clusters by frequency of appearance (main characters first)
+        clusters.sort(key=lambda c: (c['count'], c['best_score']), reverse=True)
+
         # Save crops and prepare JSON response
         os.makedirs(output_dir, exist_ok=True)
         results = []
-        for idx, person in enumerate(unique_people):
+        for idx, cluster in enumerate(clusters):
             crop_filename = f"person_{idx}_{int(time.time())}.jpg"
             crop_path = os.path.join(output_dir, crop_filename)
-            cv2.imwrite(crop_path, person['crop'])
+            cv2.imwrite(crop_path, cluster['best_crop'])
 
+            # Store multi-angle centroid and all angle embeddings (up to 8 angles)
+            angle_embs = [e.tolist() for e in cluster['embeddings'][:8]]
             results.append({
                 'person_id': idx,
-                'label': f"Person {idx + 1}",
+                'label': f"Person {idx + 1}" if idx > 0 else "Person 1 (Main Character)",
+                'appearances': cluster['count'],
                 'preview_url': f"/uploads/{crop_filename}",
-                'embedding': person['embedding'].tolist()
+                'centroid': cluster['centroid'].tolist(),
+                'embedding': cluster['centroid'].tolist(),
+                'cluster_embeddings': angle_embs
             })
 
         return results
+
 
     def get_augmented_source_embedding(self, source_img: np.ndarray, source_face) -> np.ndarray:
         """
@@ -660,11 +709,31 @@ class FaceSwapEngine:
         frame_idx = 0
         start_time = time.time()
         
-        target_emb_np = np.array(target_person_embedding, dtype=np.float32) if target_person_embedding else None
-        
+        # Parse multi-angle target embedding(s)
+        target_embs_list = []
+        if target_person_embedding is not None:
+            try:
+                if isinstance(target_person_embedding, dict):
+                    if 'cluster_embeddings' in target_person_embedding:
+                        for e in target_person_embedding['cluster_embeddings']:
+                            target_embs_list.append(np.array(e, dtype=np.float32))
+                    if 'centroid' in target_person_embedding:
+                        target_embs_list.append(np.array(target_person_embedding['centroid'], dtype=np.float32))
+                    elif 'embedding' in target_person_embedding:
+                        target_embs_list.append(np.array(target_person_embedding['embedding'], dtype=np.float32))
+                elif isinstance(target_person_embedding, (list, tuple)):
+                    if len(target_person_embedding) > 0 and isinstance(target_person_embedding[0], (list, tuple)):
+                        for e in target_person_embedding:
+                            target_embs_list.append(np.array(e, dtype=np.float32))
+                    else:
+                        target_embs_list.append(np.array(target_person_embedding, dtype=np.float32))
+            except Exception as e:
+                print(f"[VideoSwap] Target embedding parse error: {e}")
+
         smooth_kps = None
         ema_alpha = 0.70
-        
+        last_matched_bbox = None
+
         try:
             while cap.isOpened() and frame_idx < total_frames:
                 ret, frame = cap.read()
@@ -686,17 +755,39 @@ class FaceSwapEngine:
                                 color_strength=color_strength,
                                 sharpen_amount=sharpen_amount
                             )
-                    elif target_emb_np is not None:
-                        # Specific person targeting by facial embedding cosine similarity
+                    elif target_embs_list:
+                        # Specific person targeting across all head angles via multi-angle cluster matching
                         best_face = None
                         best_sim = -1.0
                         for t_face in target_faces:
-                            sim = float(np.dot(t_face.normed_embedding, target_emb_np))
-                            if sim > best_sim:
-                                best_sim = sim
+                            t_emb = t_face.normed_embedding
+                            # Compare against all angle vectors of the selected person
+                            sims = [float(np.dot(t_emb, ref_emb)) for ref_emb in target_embs_list]
+                            max_sim = max(sims) if sims else -1.0
+
+                            # Add spatial continuity bonus if face is near last matched position
+                            if last_matched_bbox is not None:
+                                bb = t_face.bbox
+                                cx_prev = (last_matched_bbox[0] + last_matched_bbox[2]) / 2.0
+                                cy_prev = (last_matched_bbox[1] + last_matched_bbox[3]) / 2.0
+                                cx_curr = (bb[0] + bb[2]) / 2.0
+                                cy_curr = (bb[1] + bb[3]) / 2.0
+                                center_dist = np.hypot(cx_curr - cx_prev, cy_curr - cy_prev)
+                                if center_dist < 80:
+                                    max_sim += 0.08  # Tracking boost
+
+                            if max_sim > best_sim:
+                                best_sim = max_sim
                                 best_face = t_face
 
-                        if best_face is not None and best_sim > 0.48: # Match found
+                        # 0.38 threshold reliably matches side profile and turned head angles of the selected person
+                        if best_face is not None and best_sim >= 0.38:
+                            last_matched_bbox = best_face.bbox.copy()
+
+                            # Dynamically add high-confidence track embeddings to cover extreme angles smoothly
+                            if len(target_embs_list) < 14 and best_sim >= 0.60:
+                                target_embs_list.append(best_face.normed_embedding.copy())
+
                             if use_smoothing:
                                 if smooth_kps is None:
                                     smooth_kps = best_face.kps.copy().astype(np.float32)
@@ -721,6 +812,7 @@ class FaceSwapEngine:
                             )
                         else:
                             swapped_frame = frame
+
                     else:
                         # Default: swap largest/primary face
                         primary_face = sorted(target_faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse=True)[0]

@@ -68,9 +68,15 @@ document.addEventListener('DOMContentLoaded', () => {
             callRecorder: null,
             callRecordedChunks: []
         },
+        // Virtual Camera State
+        vcam: {
+            isActive: false,
+            popoutWindow: null
+        },
         currentJobId: null,
         pollInterval: null
     };
+
 
     // DOM Elements - Mode Switcher
     const tabPhoto = document.getElementById('tabPhoto');
@@ -197,7 +203,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnDownloadRecordedVideo = document.getElementById('btnDownloadRecordedVideo');
     const btnCloseRecordedResult = document.getElementById('btnCloseRecordedResult');
 
+    // DOM Elements - Virtual Camera & WhatsApp Calling
+    const vcamStudioCard = document.getElementById('vcamStudioCard');
+    const btnToggleVirtualCam = document.getElementById('btnToggleVirtualCam');
+    const btnToggleVirtualCamText = document.getElementById('btnToggleVirtualCamText');
+    const btnPopoutCleanCam = document.getElementById('btnPopoutCleanCam');
+    const btnOpenWhatsAppGuide = document.getElementById('btnOpenWhatsAppGuide');
+    const btnCloseWhatsAppGuide = document.getElementById('btnCloseWhatsAppGuide');
+    const btnGotItWhatsAppGuide = document.getElementById('btnGotItWhatsAppGuide');
+    const modalWhatsAppGuide = document.getElementById('modalWhatsAppGuide');
+    const vcamStatusText = document.getElementById('vcamStatusText');
+
     // DOM Elements - AI Video Call
+
     const btnCreateCallRoom = document.getElementById('btnCreateCallRoom');
     const callRoomInput = document.getElementById('callRoomInput');
     const btnJoinCallRoom = document.getElementById('btnJoinCallRoom');
@@ -928,14 +946,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderPeopleChips() {
         peopleChipsContainer.innerHTML = '';
-        peopleDetectedCount.textContent = `${state.video.detectedPeople.length} Person(s) Found`;
+        peopleDetectedCount.textContent = `${state.video.detectedPeople.length} Person(s) Detected`;
 
         // 1. All/Primary chip
         const allChip = document.createElement('div');
         allChip.className = 'person-chip active';
         allChip.innerHTML = `
             <div class="person-chip-icon"><i class="fa-solid fa-users"></i></div>
-            <span class="person-chip-name">All / Primary Face</span>
+            <span class="person-chip-name">All Faces in Video</span>
         `;
         allChip.addEventListener('click', () => {
             peopleChipsContainer.querySelectorAll('.person-chip').forEach(c => c.classList.remove('active'));
@@ -945,23 +963,28 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         peopleChipsContainer.appendChild(allChip);
 
-        // 2. Individual person chips
+        // 2. Individual person chips (representing distinct clustered individuals)
         state.video.detectedPeople.forEach((person) => {
             const chip = document.createElement('div');
             chip.className = 'person-chip';
+            const countBadge = person.appearances ? `<small style="opacity:0.75; font-size:10px;">(${person.appearances} shots)</small>` : '';
             chip.innerHTML = `
                 <img src="${person.preview_url}" class="person-chip-avatar" alt="${person.label}">
-                <span class="person-chip-name">${person.label}</span>
+                <span class="person-chip-name">${person.label} ${countBadge}</span>
             `;
             chip.addEventListener('click', () => {
                 peopleChipsContainer.querySelectorAll('.person-chip').forEach(c => c.classList.remove('active'));
                 chip.classList.add('active');
                 state.video.selectedPersonId = person.person_id;
-                state.video.selectedPersonEmbedding = person.embedding;
+                // Pass multi-angle cluster embeddings for 100% angle coverage throughout the video
+                state.video.selectedPersonEmbedding = person.cluster_embeddings && person.cluster_embeddings.length > 0 
+                    ? person.cluster_embeddings 
+                    : person.embedding;
             });
             peopleChipsContainer.appendChild(chip);
         });
     }
+
 
     function setupDragDrop(element, onFileDrop) {
         ['dragenter', 'dragover'].forEach(eventName => {
@@ -2037,8 +2060,148 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnCloseRecordedResult) btnCloseRecordedResult.addEventListener('click', () => liveRecordResultCard.classList.add('hidden'));
 
     // =========================================================================
+    // VIRTUAL CAMERA & WHATSAPP INTEGRATION
+    // =========================================================================
+    async function checkVirtualCamStatus() {
+        try {
+            const res = await fetch('/api/virtualcam/status');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.active) {
+                    setVirtualCamUIActive(true, data.device);
+                } else if (data.available) {
+                    if (vcamStatusText) vcamStatusText.textContent = `Virtual Cam: Ready (${data.device || 'OBS Virtual Cam'})`;
+                } else {
+                    if (vcamStatusText) vcamStatusText.textContent = 'Virtual Cam: Standby';
+                }
+            }
+        } catch (e) {
+            console.log('[VirtualCam] Status check error:', e);
+        }
+    }
+
+    function setVirtualCamUIActive(isActive, deviceName) {
+        state.vcam.isActive = isActive;
+        if (isActive) {
+            if (vcamStudioCard) vcamStudioCard.classList.add('active');
+            if (btnToggleVirtualCam) {
+                btnToggleVirtualCam.classList.add('active');
+                btnToggleVirtualCamText.textContent = 'Stop Virtual Camera Feed';
+            }
+            if (vcamStatusText) {
+                vcamStatusText.textContent = `🟢 LIVE Feed -> ${deviceName || 'OBS Virtual Cam'} (Active in WhatsApp)`;
+            }
+        } else {
+            if (vcamStudioCard) vcamStudioCard.classList.remove('active');
+            if (btnToggleVirtualCam) {
+                btnToggleVirtualCam.classList.remove('active');
+                btnToggleVirtualCamText.textContent = 'Start Virtual Camera (WhatsApp/Zoom)';
+            }
+            if (vcamStatusText) {
+                vcamStatusText.textContent = 'Virtual Cam: Standby';
+            }
+        }
+    }
+
+    async function toggleVirtualCam() {
+        if (!state.vcam.isActive) {
+            // If camera is not on yet, auto-start camera
+            if (!state.live.isCameraOn) {
+                await startLiveCamera();
+            }
+
+            try {
+                const width = liveSwapCanvas.width || 640;
+                const height = liveSwapCanvas.height || 480;
+                const res = await fetch('/api/virtualcam/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ width: width, height: height, fps: 25 })
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Could not start virtual camera device');
+                }
+
+                const data = await res.json();
+                setVirtualCamUIActive(true, data.data.device);
+            } catch (err) {
+                console.error('[VirtualCam] Start failed:', err);
+                alert(`Virtual Camera Notice: ${err.message}\n\nOpening WhatsApp Setup Guide & Clean Popout instructions.`);
+                openWhatsAppGuideModal();
+            }
+        } else {
+            try {
+                await fetch('/api/virtualcam/stop', { method: 'POST' });
+                setVirtualCamUIActive(false);
+            } catch (err) {
+                console.error('[VirtualCam] Stop failed:', err);
+                setVirtualCamUIActive(false);
+            }
+        }
+    }
+
+    function openPopoutCleanCam() {
+        const w = liveSwapCanvas.width || 640;
+        const h = liveSwapCanvas.height || 480;
+        const pop = window.open('', 'FaceSwapStudioPopout', `width=${w},height=${h},menubar=no,toolbar=no,location=no,status=no`);
+        if (!pop) {
+            alert('Please allow popups to open the Clean Studio Video Window.');
+            return;
+        }
+
+        pop.document.title = 'Face Swap - Clean Studio Window (WhatsApp / Screen Share)';
+        pop.document.body.style.margin = '0';
+        pop.document.body.style.backgroundColor = '#000';
+        pop.document.body.style.display = 'flex';
+        pop.document.body.style.alignItems = 'center';
+        pop.document.body.style.justifyContent = 'center';
+        pop.document.body.style.overflow = 'hidden';
+        pop.document.body.style.height = '100vh';
+
+        const popCanvas = pop.document.createElement('canvas');
+        popCanvas.width = w;
+        popCanvas.height = h;
+        popCanvas.style.width = '100%';
+        popCanvas.style.height = '100%';
+        popCanvas.style.objectFit = 'contain';
+        pop.document.body.appendChild(popCanvas);
+
+        const popCtx = popCanvas.getContext('2d');
+
+        function syncPopout() {
+            if (pop.closed) return;
+            try {
+                popCtx.drawImage(liveSwapCanvas, 0, 0, popCanvas.width, popCanvas.height);
+                pop.requestAnimationFrame(syncPopout);
+            } catch (e) {}
+        }
+        syncPopout();
+    }
+
+    function openWhatsAppGuideModal() {
+        if (modalWhatsAppGuide) modalWhatsAppGuide.classList.remove('hidden');
+    }
+
+    function closeWhatsAppGuideModal() {
+        if (modalWhatsAppGuide) modalWhatsAppGuide.classList.add('hidden');
+    }
+
+    // Virtual Camera Event Listeners
+    if (btnToggleVirtualCam) btnToggleVirtualCam.addEventListener('click', toggleVirtualCam);
+    if (btnPopoutCleanCam) btnPopoutCleanCam.addEventListener('click', openPopoutCleanCam);
+    if (btnOpenWhatsAppGuide) btnOpenWhatsAppGuide.addEventListener('click', openWhatsAppGuideModal);
+    if (btnCloseWhatsAppGuide) btnCloseWhatsAppGuide.addEventListener('click', closeWhatsAppGuideModal);
+    if (btnGotItWhatsAppGuide) btnGotItWhatsAppGuide.addEventListener('click', closeWhatsAppGuideModal);
+
+    // Check virtual cam status on initial page load
+    checkVirtualCamStatus();
+
+    // =========================================================================
     // AI VIDEO CALL STUDIO MODULE (WEBRTC PEER-TO-PEER)
     // =========================================================================
+
     const rtcConfig = {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },

@@ -2380,3 +2380,214 @@ body {
     box-shadow: 0 0 16px rgba(239, 68, 68, 0.6);
 }
 
+/* ========================================================================= */
+/* VIRTUAL CAMERA & WHATSAPP CALLING STUDIO                                  */
+/* ========================================================================= */
+.virtualcam-studio-card {
+    margin-top: 14px;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, rgba(37, 211, 102, 0.08), rgba(15, 23, 42, 0.7));
+    border: 1px solid rgba(37, 211, 102, 0.3);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    transition: all 0.3s ease;
+}
+
+.virtualcam-studio-card.active {
+    border-color: #25d366;
+    box-shadow: 0 0 25px rgba(37, 211, 102, 0.25);
+    background: linear-gradient(135deg, rgba(37, 211, 102, 0.15), rgba(15, 23, 42, 0.85));
+}
+
+.vcam-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.vcam-title-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 14px;
+    color: #f1f5f9;
+}
+
+.vcam-status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #94a3b8;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.status-dot-mini {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #64748b;
+}
+
+.virtualcam-studio-card.active .status-dot-mini {
+    background: #25d366;
+    box-shadow: 0 0 10px #25d366;
+    animation: pulse 1.5s infinite;
+}
+
+.virtualcam-studio-card.active .vcam-status-pill {
+    background: rgba(37, 211, 102, 0.15);
+    color: #86efac;
+    border-color: rgba(37, 211, 102, 0.4);
+}
+
+.vcam-subtitle {
+    font-size: 12px;
+    color: #cbd5e1;
+    margin-bottom: 12px;
+    line-height: 1.5;
+}
+
+.vcam-actions-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.btn-whatsapp-vcam {
+    background: linear-gradient(135deg, #25d366, #128c7e);
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+    padding: 9px 18px;
+    border-radius: 8px;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(37, 211, 102, 0.35);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-whatsapp-vcam:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(37, 211, 102, 0.5);
+}
+
+.btn-whatsapp-vcam.active {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+}
+
+.btn-guide {
+    border-color: rgba(37, 211, 102, 0.4);
+    color: #86efac;
+}
+
+.btn-guide:hover {
+    background: rgba(37, 211, 102, 0.15);
+    color: #fff;
+}
+
+/* WhatsApp Guide Modal */
+.vcam-guide-modal-card {
+    max-width: 620px;
+    text-align: left;
+}
+
+.vcam-modal-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: rgba(37, 211, 102, 0.15);
+    color: #25d366;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    border: 1px solid rgba(37, 211, 102, 0.3);
+}
+
+.vcam-steps-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin: 20px 0;
+}
+
+@media (max-width: 600px) {
+    .vcam-steps-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.vcam-step-card {
+    display: flex;
+    gap: 12px;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 14px;
+}
+
+.vcam-step-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #25d366;
+    color: #000;
+    font-weight: 800;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.vcam-step-content h3 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 4px;
+}
+
+.vcam-step-content p {
+    font-size: 12px;
+    color: #94a3b8;
+    line-height: 1.4;
+}
+
+.vcam-modal-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 10px;
+}
+
+.vcam-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 12px;
+    color: #cbd5e1;
+    background: rgba(99, 102, 241, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    padding: 10px 14px;
+    border-radius: 8px;
+}
+
+.vcam-note i {
+    color: #818cf8;
+    font-size: 14px;
+    margin-top: 2px;
+}
+
+
