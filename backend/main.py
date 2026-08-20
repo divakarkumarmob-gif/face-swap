@@ -3,7 +3,7 @@ import uuid
 import threading
 import time
 import json
-from typing import Optional, List
+from typing import Optional, List, Any, Union
 from fastapi import FastAPI, File, UploadFile, Form, BackgroundTasks, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -78,7 +78,7 @@ def run_photo_swap_job(
         output_path = os.path.join(OUTPUT_DIR, output_filename)
         
         engine.swap_image(
-            source_img_path=source_path,
+            source_img_paths=source_path,
             target_img_path=target_path,
             output_path=output_path,
             use_enhancer=use_enhancer,
@@ -106,7 +106,7 @@ def run_photo_swap_job(
 
 def run_video_swap_job(
     job_id: str,
-    source_path: str,
+    source_path: Any,
     target_path: str,
     max_duration: float,
     target_person_id: Optional[int],
@@ -145,7 +145,7 @@ def run_video_swap_job(
             jobs[job_id]["message"] = f"Frame {curr_frame}/{total_frames} (ETA: {eta_str})"
 
         engine.process_video(
-            source_img_path=source_path,
+            source_img_paths=source_path,
             target_video_path=target_path,
             output_video_path=output_path,
             max_duration_sec=max_duration,

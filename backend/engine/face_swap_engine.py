@@ -520,23 +520,29 @@ class FaceSwapEngine:
 
     def swap_image(
         self,
-        source_img_paths: Any,
-        target_img_path: str,
-        output_path: str,
+        source_img_paths: Any = None,
+        target_img_path: Optional[str] = None,
+        output_path: Optional[str] = None,
         use_enhancer: bool = True,
         use_grain: bool = True,
         fidelity: float = 0.85,
         color_strength: float = 0.28,
-        sharpen_amount: float = 0.15
+        sharpen_amount: float = 0.15,
+        source_img_path: Any = None
     ) -> str:
         if not self.is_initialized:
             self.initialize()
             
+        # Support both parameter names
+        input_src = source_img_paths if source_img_paths is not None else source_img_path
+        if input_src is None:
+            raise ValueError("No source image provided.")
+
         # Support single path or list of multiple source photo paths
-        if isinstance(source_img_paths, str):
-            source_paths = [source_img_paths]
+        if isinstance(input_src, str):
+            source_paths = [input_src]
         else:
-            source_paths = list(source_img_paths)
+            source_paths = list(input_src)
 
         source_imgs = []
         for p in source_paths:
@@ -575,9 +581,9 @@ class FaceSwapEngine:
 
     def process_video(
         self,
-        source_img_paths: Any,
-        target_video_path: str,
-        output_video_path: str,
+        source_img_paths: Any = None,
+        target_video_path: Optional[str] = None,
+        output_video_path: Optional[str] = None,
         max_duration_sec: float = 30.0,
         target_person_id: Optional[int] = None,
         target_person_embedding: Optional[List[float]] = None,
@@ -587,7 +593,8 @@ class FaceSwapEngine:
         fidelity: float = 0.85,
         color_strength: float = 0.28,
         sharpen_amount: float = 0.15,
-        progress_callback: Optional[Callable[[int, int, float, str], None]] = None
+        progress_callback: Optional[Callable[[int, int, float, str], None]] = None,
+        source_img_path: Any = None
     ) -> str:
         """
         Processes target video frame by frame with:
@@ -602,10 +609,14 @@ class FaceSwapEngine:
         if not self.is_initialized:
             self.initialize()
             
-        if isinstance(source_img_paths, str):
-            source_paths = [source_img_paths]
+        input_src = source_img_paths if source_img_paths is not None else source_img_path
+        if input_src is None:
+            raise ValueError("No source face image(s) provided.")
+
+        if isinstance(input_src, str):
+            source_paths = [input_src]
         else:
-            source_paths = list(source_img_paths)
+            source_paths = list(input_src)
 
         source_imgs = []
         for p in source_paths:
