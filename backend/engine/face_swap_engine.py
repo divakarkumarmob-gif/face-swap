@@ -135,14 +135,21 @@ class FaceSwapEngine:
         self.swapper = insightface.model_zoo.get_model(self.model_path, providers=providers)
         self._cached_mask_512 = create_face_mask(512)
 
+        if not self.enhancer_path or not os.path.exists(self.enhancer_path):
+            default_gfpgan = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "gfpgan_1.4.onnx")
+            if os.path.exists(default_gfpgan):
+                self.enhancer_path = default_gfpgan
+
         if self.enhancer_path and os.path.exists(self.enhancer_path):
             try:
                 if progress_callback:
                     progress_callback(90, "Loading GFPGAN HD Face Enhancer...")
                 self.enhancer_session = onnxruntime.InferenceSession(self.enhancer_path, providers=providers)
-                print("GFPGAN HD Face Enhancer loaded successfully.")
+                print(f"[FaceSwapEngine] GFPGAN 1.4 HD Enhancer loaded successfully from {self.enhancer_path}")
             except Exception as e:
-                print(f"Could not load GFPGAN session: {e}")
+                print(f"[FaceSwapEngine] Could not load GFPGAN session: {e}")
+        else:
+            print("[FaceSwapEngine] Warning: GFPGAN 1.4 model file not found on disk.")
         
         self.is_initialized = True
         if progress_callback:
@@ -157,6 +164,7 @@ class FaceSwapEngine:
         img_512 = cv2.resize(face_bgr, (512, 512), interpolation=cv2.INTER_LANCZOS4) if (orig_w, orig_h) != (512, 512) else face_bgr
 
         if self.enhancer_session is None:
+            print("[GFPGAN] Session is None, applying unsharp contrast filter.")
             gaussian = cv2.GaussianBlur(img_512, (0, 0), 2.0)
             sharp_wt = 1.0 + max(0.05, sharpen_amount * 2.0)
             sharp = cv2.addWeighted(img_512, sharp_wt, gaussian, -(sharp_wt - 1.0), 0)
@@ -189,7 +197,7 @@ class FaceSwapEngine:
 
             return enhanced if (orig_w, orig_h) == (512, 512) else cv2.resize(enhanced, (orig_w, orig_h), interpolation=cv2.INTER_LANCZOS4)
         except Exception as e:
-            print(f"GFPGAN enhance error: {e}")
+            print(f"[GFPGAN] enhance error: {e}")
             gaussian = cv2.GaussianBlur(img_512, (0, 0), 2.0)
             return cv2.addWeighted(img_512, 1.25, gaussian, -0.25, 0)
 

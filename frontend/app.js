@@ -136,7 +136,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch('/api/status');
             if (res.ok) {
                 const data = await res.json();
-                engineStatusText.textContent = data.initialized ? "AI Engine Ready" : "AI Models Ready";
+                if (data.gfpgan_loaded && data.inswapper_loaded) {
+                    engineStatusText.innerHTML = `<i class="fa-solid fa-circle-check" style="color:#10b981;margin-right:4px;"></i> GFPGAN 1.4 HD Active`;
+                } else if (data.initialized) {
+                    engineStatusText.textContent = "AI Engine Ready";
+                } else {
+                    engineStatusText.textContent = "AI Engine Starting...";
+                }
             }
         } catch (e) {
             engineStatusText.textContent = "Server Offline";

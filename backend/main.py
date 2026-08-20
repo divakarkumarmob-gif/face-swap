@@ -176,12 +176,29 @@ def run_video_swap_job(
         jobs[job_id]["message"] = str(e)
         jobs[job_id]["error"] = str(e)
 
+@app.on_event("startup")
+def on_startup():
+    print("Pre-loading AI models (InSwapper + GFPGAN HD) on server startup...")
+    try:
+        engine = FaceSwapEngine.get_instance()
+        engine.initialize()
+        print(f"AI Engine Preloaded! InSwapper: {engine.swapper is not None}, GFPGAN 1.4 HD: {engine.enhancer_session is not None}")
+    except Exception as e:
+        print(f"Preload warning: {e}")
+
 @app.get("/api/status")
 def get_engine_status():
     engine = FaceSwapEngine.get_instance()
     return {
         "status": "ready" if engine.is_initialized else "standby",
-        "initialized": engine.is_initialized
+        "initialized": engine.is_initialized,
+        "gfpgan_loaded": engine.enhancer_session is not None,
+        "inswapper_loaded": engine.swapper is not None,
+        "models": {
+            "inswapper": "InSwapper 128 (Loaded)" if engine.swapper is not None else "Standby",
+            "gfpgan": "GFPGAN 1.4 HD (Active)" if engine.enhancer_session is not None else "Standby",
+            "buffalo_l": "InsightFace Buffalo_L (Active)" if engine.app is not None else "Standby"
+        }
     }
 
 @app.post("/api/swap-photo")
