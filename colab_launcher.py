@@ -4,6 +4,7 @@ import subprocess
 import time
 import requests
 import shutil
+import re
 
 print("=" * 60)
 print("🎭 AI Face Swap Studio - 1-Click Google Colab Runner")
@@ -33,7 +34,7 @@ def download_file_with_progress(urls, dest_path, min_size_bytes=50_000_000):
                 temp_dest = dest_path + ".tmp"
                 
                 with open(temp_dest, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=1024 * 1024): # 1MB chunks
+                    for chunk in r.iter_content(chunk_size=1024 * 1024):
                         if chunk:
                             f.write(chunk)
                             downloaded += len(chunk)
@@ -60,7 +61,7 @@ def download_file_with_progress(urls, dest_path, min_size_bytes=50_000_000):
 
     raise RuntimeError(f"❌ Failed to download model: {os.path.basename(dest_path)} from all sources.")
 
-# 1. Download Required AI Models (Verified Direct Working Links)
+# 1. Download Required AI Models
 inswapper_urls = [
     "https://huggingface.co/countfloyd/deepfake/resolve/main/inswapper_128.onnx",
     "https://huggingface.co/datasets/Gourieff/ReActor/resolve/main/models/inswapper_128.onnx",
@@ -76,13 +77,12 @@ gfpgan_urls = [
 download_file_with_progress(inswapper_urls, os.path.join(MODELS_DIR, "inswapper_128.onnx"), min_size_bytes=500_000_000)
 download_file_with_progress(gfpgan_urls, os.path.join(MODELS_DIR, "gfpgan_1.4.onnx"), min_size_bytes=300_000_000)
 
-# Copy alias so both name variations are found
 alt_gfpgan = os.path.join(MODELS_DIR, "GFPGANv1.4.onnx")
 main_gfpgan = os.path.join(MODELS_DIR, "gfpgan_1.4.onnx")
 if os.path.exists(main_gfpgan) and not os.path.exists(alt_gfpgan):
     shutil.copyfile(main_gfpgan, alt_gfpgan)
 
-# 2. Setup Cloudflared Tunnel for instant 100% Free Public HTTPS URL (No signup/tokens needed)
+# 2. Setup Cloudflared Tunnel
 cloudflared_path = shutil.which("cloudflared") or os.path.join(BASE_DIR, "cloudflared")
 
 if not os.path.exists(cloudflared_path) and not shutil.which("cloudflared"):
@@ -94,7 +94,7 @@ if not os.path.exists(cloudflared_path) and not shutil.which("cloudflared"):
             for chunk in r.iter_content(chunk_size=65536):
                 if chunk: f.write(chunk)
         os.chmod(cloudflared_path, 0o777)
-        print("✅ Cloudflare Tunnel ready!")
+        print("✅ Cloudflare Tunnel binary ready!")
     except Exception as e:
         print(f"Tunnel download notice: {e}")
 
@@ -103,7 +103,7 @@ print("🚀 Starting FastAPI Face Swap Server on Port 8000...")
 server_cmd = [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 server_proc = subprocess.Popen(server_cmd, cwd=BACKEND_DIR)
 
-time.sleep(3)
+time.sleep(2)
 
 # 4. Start Cloudflare Tunnel
 print("🔗 Launching Free Public HTTPS Tunnel...")
@@ -115,21 +115,27 @@ print("🌍 GENERATING YOUR LIVE PUBLIC URL...")
 print("=" * 60)
 
 tunnel_url_found = False
+url_pattern = re.compile(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com')
+
 for line in tunnel_proc.stdout:
-    if "trycloudflare.com" in line:
-        for word in line.split():
-            if "trycloudflare.com" in word:
-                clean_url = word.strip().rstrip("/.")
-                if not clean_url.startswith("http"):
-                    clean_url = f"https://{clean_url}"
-                print("\n" + "🎉" * 28)
-                print(f"✨ YOUR LIVE FACE SWAP STUDIO IS READY AT:")
-                print(f"👉 {clean_url}")
-                print("🎉" * 28 + "\n")
-                tunnel_url_found = True
-                break
-    if tunnel_url_found:
-        break
+    match = url_pattern.search(line)
+    if match:
+        full_url = match.group(0)
+        # Avoid the generic domain if matched
+        if full_url != "https://trycloudflare.com" and "trycloudflare.com" in full_url:
+            print("\n" + "🎉" * 28)
+            print("✨ YOUR LIVE FACE SWAP STUDIO IS READY AT:")
+            print(f"👉 {full_url}")
+            print("🎉" * 28 + "\n")
+            
+            try:
+                from IPython.display import display, HTML
+                display(HTML(f'<div style="background:#1e1e38;padding:16px;border-radius:10px;border:2px solid #6366f1;text-align:center;"><h2 style="color:#fff;margin:0 0 10px;">✨ Live Face Swap Studio Ready!</h2><a href="{full_url}" target="_blank" style="display:inline-block;padding:12px 24px;background:linear-gradient(90deg,#6366f1,#ec4899);color:#fff;font-weight:bold;text-decoration:none;border-radius:8px;font-size:16px;">🚀 Open Face Swap App in New Tab</a><p style="color:#94a3b8;margin:8px 0 0;font-size:12px;">{full_url}</p></div>'))
+            except Exception:
+                pass
+            
+            tunnel_url_found = True
+            break
 
 try:
     server_proc.wait()
