@@ -731,7 +731,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (job.status === 'completed') {
                     hideProgressModal();
-                    displayResults(job, jobType);
+                    displayResults(job, job.type || jobType);
                 } else if (job.status === 'failed') {
                     hideProgressModal();
                     alert(`Face Swap Failed: ${job.error || 'Unknown error occurred'}`);
@@ -808,13 +808,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Handle Regenerate Click
     btnRegenerateNow.addEventListener('click', async () => {
-        if (!state.currentJobId) {
+        const activeJobId = state.currentJobId || (versionHistory.length > 0 ? versionHistory[versionHistory.length - 1].id : null);
+        if (!activeJobId) {
             alert('No previous face swap found to regenerate. Please perform an initial swap first.');
             return;
         }
 
         const payload = {
-            job_id: state.currentJobId,
+            job_id: activeJobId,
             tuning_preset: selectedRegenPreset,
             fidelity: parseFloat(sliderFidelity.value) / 100.0,
             color_strength: parseFloat(sliderColor.value) / 100.0,
@@ -854,22 +855,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (viewingVersionIdx === -1 || viewingVersionIdx === versionHistory.length - 1) {
             // View previous version (v1)
-            viewingVersionIdx = versionHistory.length - 2;
+            viewingVersionIdx = 0;
         } else {
             // View latest version
             viewingVersionIdx = versionHistory.length - 1;
         }
 
         const targetVer = versionHistory[viewingVersionIdx];
+        const cacheBustedUrl = `${targetVer.url}?t=${Date.now()}`;
         if (currentMode === 'photo') {
-            swappedPhotoResult.src = targetVer.url;
+            swappedPhotoResult.src = cacheBustedUrl;
         } else {
-            swappedVideoPlayer.src = targetVer.url;
+            swappedVideoPlayer.src = cacheBustedUrl;
+            swappedVideoPlayer.load();
+            swappedVideoPlayer.play().catch(() => {});
         }
 
-        resultVersionBadge.innerHTML = `<i class="fa-solid fa-code-branch"></i> Version ${targetVer.iteration} (${targetVer.presetTitle || 'Original'})`;
+        resultVersionBadge.innerHTML = `<i class="fa-solid fa-code-branch"></i> Version ${targetVer.iteration} (${targetVer.presetTitle || 'Enhanced'})`;
         btnTogglePreviousVersion.innerHTML = viewingVersionIdx === versionHistory.length - 1 ? 
-            `<i class="fa-solid fa-code-compare"></i> View v${versionHistory[0].iteration}` : 
+            `<i class="fa-solid fa-code-compare"></i> View v1` : 
             `<i class="fa-solid fa-code-compare"></i> View Latest (v${versionHistory[versionHistory.length - 1].iteration})`;
     });
 
@@ -877,9 +881,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // DISPLAY RESULTS
     // =========================================================================
     function displayResults(job, jobType) {
-        // Record version history
+        state.currentJobId = job.id;
         const iteration = job.iteration || 1;
         const presetTitle = job.preset_title || (iteration === 1 ? 'Initial Swap' : 'Enhanced');
+        const cacheBustedUrl = `${job.output_url}?t=${Date.now()}`;
         
         versionHistory.push({
             id: job.id,
@@ -917,8 +922,8 @@ document.addEventListener('DOMContentLoaded', () => {
             btnDownloadMedia.href = job.download_url || job.output_url;
             btnDownloadMedia.setAttribute('download', `swapped_photo_v${iteration}_${job.id}.jpg`);
 
-            // Swapped Photo
-            swappedPhotoResult.src = job.output_url;
+            // Swapped Photo (with cache buster)
+            swappedPhotoResult.src = cacheBustedUrl;
             swappedPhotoResult.classList.remove('hidden');
             swappedVideoPlayer.classList.add('hidden');
 
@@ -939,10 +944,12 @@ document.addEventListener('DOMContentLoaded', () => {
             btnDownloadMedia.href = job.download_url || job.output_url;
             btnDownloadMedia.setAttribute('download', `swapped_video_v${iteration}_${job.id}.mp4`);
 
-            // Swapped Video
-            swappedVideoPlayer.src = job.output_url;
+            // Swapped Video (with cache buster)
+            swappedVideoPlayer.src = cacheBustedUrl;
             swappedVideoPlayer.classList.remove('hidden');
             swappedPhotoResult.classList.add('hidden');
+            swappedVideoPlayer.load();
+            swappedVideoPlayer.play().catch(() => {});
 
             // Original Target Video
             if (state.video.targetFile) {
