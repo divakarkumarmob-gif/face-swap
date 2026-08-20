@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=3.0">
+    <link rel="stylesheet" href="style.css?v=3.2">
 </head>
 <body>
     <!-- Background Glow Blobs -->
@@ -86,7 +86,7 @@
                                 <i class="fa-solid fa-camera-rotate"></i>
                             </div>
                             <h3>Input Face Photo (1 to 4 Photos)</h3>
-                            <p class="file-limits">Upload 1 to 4 photos for 3D Master Identity Fusion</p>
+                            <p class="file-limits">Select 1 or more photos (Hold Ctrl/Shift to pick multiple)</p>
                             <button type="button" class="btn btn-outline" id="btnBrowsePhotoSource"><i class="fa-solid fa-images"></i> Browse Photo(s)</button>
                         </div>
 
@@ -94,13 +94,20 @@
                             <img id="photoSourcePreviewImg" src="" alt="Input Face Photo">
                             <div class="preview-overlay">
                                 <span class="face-tag" id="photoSourceFusionBadge"><i class="fa-solid fa-dna"></i> 3D Master Identity Ready</span>
-                                <button type="button" class="btn-icon btn-remove" id="btnRemovePhotoSource" title="Remove Photo(s)">
-                                    <i class="fa-solid fa-xmark"></i>
+                                <button type="button" class="btn-icon btn-remove" id="btnRemovePhotoSource" title="Remove All Photos">
+                                    <i class="fa-solid fa-trash-can"></i>
                                 </button>
                             </div>
-                            <!-- Multi-photo thumbnail strip -->
-                            <div class="multi-photos-strip hidden" id="photoMultiThumbnails"></div>
                         </div>
+                    </div>
+
+                    <!-- Multi-Photo 3D Fusion Gallery Tray -->
+                    <div class="multi-photos-gallery hidden" id="photoMultiGallery">
+                        <div class="gallery-header">
+                            <span class="gallery-title"><i class="fa-solid fa-layer-group"></i> Multi-Photo 3D Fusion (<span id="photoCountBadge">0</span>/4)</span>
+                            <button type="button" class="btn-gallery-add" id="btnAddMorePhotoSource"><i class="fa-solid fa-plus"></i> Add Angle</button>
+                        </div>
+                        <div class="gallery-thumbnails-grid" id="photoMultiThumbnails"></div>
                     </div>
 
                     <!-- Presets -->
@@ -201,7 +208,7 @@
                                 <i class="fa-solid fa-camera-rotate"></i>
                             </div>
                             <h3>Input Face Photo (1 to 4 Photos)</h3>
-                            <p class="file-limits">Upload 1 to 4 photos for 3D Master Identity Fusion</p>
+                            <p class="file-limits">Select 1 or more photos (Hold Ctrl/Shift to pick multiple)</p>
                             <button type="button" class="btn btn-outline" id="btnBrowseVideoSource"><i class="fa-solid fa-images"></i> Browse Photo(s)</button>
                         </div>
 
@@ -209,13 +216,20 @@
                             <img id="videoSourcePreviewImg" src="" alt="Source Face">
                             <div class="preview-overlay">
                                 <span class="face-tag" id="videoSourceFusionBadge"><i class="fa-solid fa-dna"></i> 3D Master Identity Ready</span>
-                                <button type="button" class="btn-icon btn-remove" id="btnRemoveVideoSource" title="Remove Photo(s)">
-                                    <i class="fa-solid fa-xmark"></i>
+                                <button type="button" class="btn-icon btn-remove" id="btnRemoveVideoSource" title="Remove All Photos">
+                                    <i class="fa-solid fa-trash-can"></i>
                                 </button>
                             </div>
-                            <!-- Multi-photo thumbnail strip -->
-                            <div class="multi-photos-strip hidden" id="videoMultiThumbnails"></div>
                         </div>
+                    </div>
+
+                    <!-- Multi-Photo 3D Fusion Gallery Tray (Video Mode) -->
+                    <div class="multi-photos-gallery hidden" id="videoMultiGallery">
+                        <div class="gallery-header">
+                            <span class="gallery-title"><i class="fa-solid fa-layer-group"></i> Multi-Photo 3D Fusion (<span id="videoCountBadge">0</span>/4)</span>
+                            <button type="button" class="btn-gallery-add" id="btnAddMoreVideoSource"><i class="fa-solid fa-plus"></i> Add Angle</button>
+                        </div>
+                        <div class="gallery-thumbnails-grid" id="videoMultiThumbnails"></div>
                     </div>
 
                     <!-- Presets -->
@@ -501,6 +515,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=3.0"></script>
+    <script src="app.js?v=3.2"></script>
 </body>
 </html>

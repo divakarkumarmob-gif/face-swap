@@ -40,6 +40,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const photoSourcePreviewState = document.getElementById('photoSourcePreviewState');
     const photoSourcePreviewImg = document.getElementById('photoSourcePreviewImg');
     const photoSourceFusionBadge = document.getElementById('photoSourceFusionBadge');
+    const photoMultiGallery = document.getElementById('photoMultiGallery');
+    const photoCountBadge = document.getElementById('photoCountBadge');
+    const btnAddMorePhotoSource = document.getElementById('btnAddMorePhotoSource');
     const photoMultiThumbnails = document.getElementById('photoMultiThumbnails');
     const btnBrowsePhotoSource = document.getElementById('btnBrowsePhotoSource');
     const btnRemovePhotoSource = document.getElementById('btnRemovePhotoSource');
@@ -65,6 +68,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const videoSourcePreviewState = document.getElementById('videoSourcePreviewState');
     const videoSourcePreviewImg = document.getElementById('videoSourcePreviewImg');
     const videoSourceFusionBadge = document.getElementById('videoSourceFusionBadge');
+    const videoMultiGallery = document.getElementById('videoMultiGallery');
+    const videoCountBadge = document.getElementById('videoCountBadge');
+    const btnAddMoreVideoSource = document.getElementById('btnAddMoreVideoSource');
     const videoMultiThumbnails = document.getElementById('videoMultiThumbnails');
     const btnBrowseVideoSource = document.getElementById('btnBrowseVideoSource');
     const btnRemoveVideoSource = document.getElementById('btnRemoveVideoSource');
@@ -219,8 +225,10 @@ document.addEventListener('DOMContentLoaded', () => {
     loadTemplates();
 
     // =========================================================================
-    // PHOTO MODE HANDLERS
+    // MULTI-PHOTO SOURCE LOGIC (PHOTO MODE)
     // =========================================================================
+    let activePhotoIndex = 0;
+
     function selectPhotoSourcePreset(face, el) {
         photoSourcePresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
         el.classList.add('active');
@@ -232,68 +240,176 @@ document.addEventListener('DOMContentLoaded', () => {
         photoSourcePreviewImg.src = face.url;
         photoSourceEmptyState.classList.add('hidden');
         photoSourcePreviewState.classList.remove('hidden');
+        if (photoMultiGallery) photoMultiGallery.classList.add('hidden');
+        photoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-check-circle"></i> Preset Face Loaded`;
     }
 
-    function selectPhotoTargetPreset(photo, el) {
-        photoTargetPresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
-        el.classList.add('active');
+    function addPhotoSourceFiles(newFilesList) {
+        const valid = Array.from(newFilesList).filter(f => f.type.startsWith('image/'));
+        if (!valid.length) {
+            alert('Please select valid image file(s) (JPG, PNG, WEBP).');
+            return;
+        }
 
-        state.photo.targetFile = null;
-        state.photo.targetTemplate = photo.id;
+        for (let f of valid) {
+            if (state.photo.sourceFiles.length < 4) {
+                state.photo.sourceFiles.push(f);
+            }
+        }
 
-        photoTargetPreviewImg.src = photo.url;
-        photoTargetEmptyState.classList.add('hidden');
-        photoTargetPreviewState.classList.remove('hidden');
+        state.photo.sourceFile = state.photo.sourceFiles[0] || null;
+        state.photo.sourceTemplate = null;
+        photoSourcePresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
+
+        activePhotoIndex = state.photo.sourceFiles.length - 1;
+        renderPhotoMultiGallery();
     }
 
-    // Photo Source Upload
+    function removePhotoSourceFile(index) {
+        state.photo.sourceFiles.splice(index, 1);
+        if (state.photo.sourceFiles.length === 0) {
+            clearPhotoSource();
+        } else {
+            if (activePhotoIndex >= state.photo.sourceFiles.length) {
+                activePhotoIndex = state.photo.sourceFiles.length - 1;
+            }
+            state.photo.sourceFile = state.photo.sourceFiles[0];
+            renderPhotoMultiGallery();
+        }
+    }
+
+    function clearPhotoSource() {
+        state.photo.sourceFile = null;
+        state.photo.sourceFiles = [];
+        state.photo.sourceTemplate = null;
+        activePhotoIndex = 0;
+        photoSourceFileInput.value = '';
+        photoSourcePreviewImg.src = '';
+        photoSourcePreviewState.classList.add('hidden');
+        if (photoMultiGallery) photoMultiGallery.classList.add('hidden');
+        photoSourceEmptyState.classList.remove('hidden');
+        photoSourcePresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
+    }
+
+    function renderPhotoMultiGallery() {
+        const files = state.photo.sourceFiles;
+        if (files.length === 0) {
+            clearPhotoSource();
+            return;
+        }
+
+        photoSourceEmptyState.classList.add('hidden');
+        photoSourcePreviewState.classList.remove('hidden');
+        if (photoMultiGallery) photoMultiGallery.classList.remove('hidden');
+
+        // Update primary preview with selected active file
+        const activeFile = files[activePhotoIndex] || files[0];
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            photoSourcePreviewImg.src = e.target.result;
+        };
+        reader.readAsDataURL(activeFile);
+
+        // Update badges
+        if (photoCountBadge) photoCountBadge.textContent = files.length;
+        if (files.length > 1) {
+            photoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-dna"></i> 3D Master Fusion (${files.length} Photos)`;
+        } else {
+            photoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-check-circle"></i> Input Face Loaded`;
+        }
+
+        // Render thumbnails grid
+        if (photoMultiThumbnails) {
+            photoMultiThumbnails.innerHTML = '';
+            const angleLabels = ["P1 Front", "P2 Left", "P3 Right", "P4 Smile"];
+
+            files.forEach((file, idx) => {
+                const card = document.createElement('div');
+                card.className = `gallery-thumb-card ${idx === activePhotoIndex ? 'active' : ''}`;
+                card.title = `Photo ${idx + 1}: ${file.name} (Click to preview)`;
+
+                const r = new FileReader();
+                r.onload = (e) => {
+                    card.innerHTML = `
+                        <img src="${e.target.result}" alt="Photo ${idx + 1}">
+                        <span class="gallery-thumb-badge">${angleLabels[idx] || `P${idx + 1}`}</span>
+                        <button type="button" class="gallery-thumb-delete" title="Delete Photo ${idx + 1}"><i class="fa-solid fa-xmark"></i></button>
+                    `;
+                    card.querySelector('.gallery-thumb-delete').addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        removePhotoSourceFile(idx);
+                    });
+                };
+                r.readAsDataURL(file);
+
+                card.addEventListener('click', () => {
+                    activePhotoIndex = idx;
+                    renderPhotoMultiGallery();
+                });
+
+                photoMultiThumbnails.appendChild(card);
+            });
+
+            if (files.length < 4) {
+                const addTile = document.createElement('div');
+                addTile.className = 'gallery-thumb-add-tile';
+                addTile.title = 'Add another face photo (up to 4)';
+                addTile.innerHTML = `<i class="fa-solid fa-plus"></i><span>Angle</span>`;
+                addTile.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    photoSourceFileInput.click();
+                });
+                photoMultiThumbnails.appendChild(addTile);
+            }
+        }
+    }
+
+    // Photo Source Input Listeners
     btnBrowsePhotoSource.addEventListener('click', (e) => {
         e.stopPropagation();
         photoSourceFileInput.click();
     });
 
-    photoSourceDropzone.addEventListener('click', () => {
-        if (!state.photo.sourceFile && !state.photo.sourceTemplate) {
+    if (btnAddMorePhotoSource) {
+        btnAddMorePhotoSource.addEventListener('click', (e) => {
+            e.stopPropagation();
+            photoSourceFileInput.click();
+        });
+    }
+
+    photoSourceDropzone.addEventListener('click', (e) => {
+        if (!state.photo.sourceFile && state.photo.sourceFiles.length === 0 && !state.photo.sourceTemplate) {
             photoSourceFileInput.click();
         }
     });
 
     photoSourceFileInput.addEventListener('change', (e) => {
-        if (e.target.files && e.target.files[0]) {
-            handlePhotoSourceFile(e.target.files[0]);
+        if (e.target.files && e.target.files.length > 0) {
+            addPhotoSourceFiles(e.target.files);
+            photoSourceFileInput.value = ''; // Reset to allow re-selection
         }
     });
-
-    function handlePhotoSourceFile(file) {
-        if (!file.type.startsWith('image/')) {
-            alert('Please select a valid image file (JPG, PNG, WEBP).');
-            return;
-        }
-        state.photo.sourceFile = file;
-        state.photo.sourceTemplate = null;
-        photoSourcePresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            photoSourcePreviewImg.src = e.target.result;
-            photoSourceEmptyState.classList.add('hidden');
-            photoSourcePreviewState.classList.remove('hidden');
-        };
-        reader.readAsDataURL(file);
-    }
 
     btnRemovePhotoSource.addEventListener('click', (e) => {
         e.stopPropagation();
-        state.photo.sourceFile = null;
-        state.photo.sourceTemplate = null;
-        photoSourceFileInput.value = '';
-        photoSourcePreviewImg.src = '';
-        photoSourcePreviewState.classList.add('hidden');
-        photoSourceEmptyState.classList.remove('hidden');
-        photoSourcePresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
+        clearPhotoSource();
     });
 
-    // Photo Target Upload (Right Side)
+    // =========================================================================
+    // PHOTO TARGET HANDLERS
+    // =========================================================================
+    function selectPhotoTargetPreset(tgt, el) {
+        photoTargetPresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
+        el.classList.add('active');
+
+        state.photo.targetFile = null;
+        state.photo.targetTemplate = tgt.id;
+
+        photoTargetPreviewImg.src = tgt.url;
+        photoTargetEmptyState.classList.add('hidden');
+        photoTargetPreviewState.classList.remove('hidden');
+    }
+
     btnBrowsePhotoTarget.addEventListener('click', (e) => {
         e.stopPropagation();
         photoTargetFileInput.click();
@@ -341,24 +457,180 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Drag & Drop for Photo Dropzones
-    setupDragDrop(photoSourceDropzone, handlePhotoSourceFile);
-    setupDragDrop(photoTargetDropzone, handlePhotoTargetFile);
+    setupDragDrop(photoSourceDropzone, (files) => addPhotoSourceFiles(files));
+    setupDragDrop(photoTargetDropzone, (files) => handlePhotoTargetFile(files[0]));
 
     // =========================================================================
-    // VIDEO MODE HANDLERS
+    // MULTI-PHOTO SOURCE LOGIC (VIDEO MODE)
     // =========================================================================
+    let activeVideoSourceIndex = 0;
+
     function selectVideoSourcePreset(face, el) {
         videoSourcePresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
         el.classList.add('active');
 
         state.video.sourceFile = null;
+        state.video.sourceFiles = [];
         state.video.sourceTemplate = face.id;
 
         videoSourcePreviewImg.src = face.url;
         videoSourceEmptyState.classList.add('hidden');
         videoSourcePreviewState.classList.remove('hidden');
+        if (videoMultiGallery) videoMultiGallery.classList.add('hidden');
+        videoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-check-circle"></i> Preset Face Loaded`;
     }
 
+    function addVideoSourceFiles(newFilesList) {
+        const valid = Array.from(newFilesList).filter(f => f.type.startsWith('image/'));
+        if (!valid.length) {
+            alert('Please select valid image file(s) (JPG, PNG, WEBP).');
+            return;
+        }
+
+        for (let f of valid) {
+            if (state.video.sourceFiles.length < 4) {
+                state.video.sourceFiles.push(f);
+            }
+        }
+
+        state.video.sourceFile = state.video.sourceFiles[0] || null;
+        state.video.sourceTemplate = null;
+        videoSourcePresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
+
+        activeVideoSourceIndex = state.video.sourceFiles.length - 1;
+        renderVideoMultiGallery();
+    }
+
+    function removeVideoSourceFile(index) {
+        state.video.sourceFiles.splice(index, 1);
+        if (state.video.sourceFiles.length === 0) {
+            clearVideoSource();
+        } else {
+            if (activeVideoSourceIndex >= state.video.sourceFiles.length) {
+                activeVideoSourceIndex = state.video.sourceFiles.length - 1;
+            }
+            state.video.sourceFile = state.video.sourceFiles[0];
+            renderVideoMultiGallery();
+        }
+    }
+
+    function clearVideoSource() {
+        state.video.sourceFile = null;
+        state.video.sourceFiles = [];
+        state.video.sourceTemplate = null;
+        activeVideoSourceIndex = 0;
+        videoSourceFileInput.value = '';
+        videoSourcePreviewImg.src = '';
+        videoSourcePreviewState.classList.add('hidden');
+        if (videoMultiGallery) videoMultiGallery.classList.add('hidden');
+        videoSourceEmptyState.classList.remove('hidden');
+        videoSourcePresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
+    }
+
+    function renderVideoMultiGallery() {
+        const files = state.video.sourceFiles;
+        if (files.length === 0) {
+            clearVideoSource();
+            return;
+        }
+
+        videoSourceEmptyState.classList.add('hidden');
+        videoSourcePreviewState.classList.remove('hidden');
+        if (videoMultiGallery) videoMultiGallery.classList.remove('hidden');
+
+        const activeFile = files[activeVideoSourceIndex] || files[0];
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            videoSourcePreviewImg.src = e.target.result;
+        };
+        reader.readAsDataURL(activeFile);
+
+        if (videoCountBadge) videoCountBadge.textContent = files.length;
+        if (files.length > 1) {
+            videoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-dna"></i> 3D Master Fusion (${files.length} Photos)`;
+        } else {
+            videoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-check-circle"></i> Input Face Loaded`;
+        }
+
+        if (videoMultiThumbnails) {
+            videoMultiThumbnails.innerHTML = '';
+            const angleLabels = ["P1 Front", "P2 Left", "P3 Right", "P4 Smile"];
+
+            files.forEach((file, idx) => {
+                const card = document.createElement('div');
+                card.className = `gallery-thumb-card ${idx === activeVideoSourceIndex ? 'active' : ''}`;
+                card.title = `Photo ${idx + 1}: ${file.name} (Click to preview)`;
+
+                const r = new FileReader();
+                r.onload = (e) => {
+                    card.innerHTML = `
+                        <img src="${e.target.result}" alt="Photo ${idx + 1}">
+                        <span class="gallery-thumb-badge">${angleLabels[idx] || `P${idx + 1}`}</span>
+                        <button type="button" class="gallery-thumb-delete" title="Delete Photo ${idx + 1}"><i class="fa-solid fa-xmark"></i></button>
+                    `;
+                    card.querySelector('.gallery-thumb-delete').addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        removeVideoSourceFile(idx);
+                    });
+                };
+                r.readAsDataURL(file);
+
+                card.addEventListener('click', () => {
+                    activeVideoSourceIndex = idx;
+                    renderVideoMultiGallery();
+                });
+
+                videoMultiThumbnails.appendChild(card);
+            });
+
+            if (files.length < 4) {
+                const addTile = document.createElement('div');
+                addTile.className = 'gallery-thumb-add-tile';
+                addTile.title = 'Add another face photo (up to 4)';
+                addTile.innerHTML = `<i class="fa-solid fa-plus"></i><span>Angle</span>`;
+                addTile.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    videoSourceFileInput.click();
+                });
+                videoMultiThumbnails.appendChild(addTile);
+            }
+        }
+    }
+
+    // Video Source Input Listeners
+    btnBrowseVideoSource.addEventListener('click', (e) => {
+        e.stopPropagation();
+        videoSourceFileInput.click();
+    });
+
+    if (btnAddMoreVideoSource) {
+        btnAddMoreVideoSource.addEventListener('click', (e) => {
+            e.stopPropagation();
+            videoSourceFileInput.click();
+        });
+    }
+
+    videoSourceDropzone.addEventListener('click', () => {
+        if (!state.video.sourceFile && state.video.sourceFiles.length === 0 && !state.video.sourceTemplate) {
+            videoSourceFileInput.click();
+        }
+    });
+
+    videoSourceFileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            addVideoSourceFiles(e.target.files);
+            videoSourceFileInput.value = '';
+        }
+    });
+
+    btnRemoveVideoSource.addEventListener('click', (e) => {
+        e.stopPropagation();
+        clearVideoSource();
+    });
+
+    // =========================================================================
+    // VIDEO TARGET HANDLERS
+    // =========================================================================
     function selectVideoPreset(vid, el) {
         videoPresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
         el.classList.add('active');
@@ -378,54 +650,6 @@ document.addEventListener('DOMContentLoaded', () => {
         extractPeopleFromVideo();
     }
 
-    // Video Source Upload
-    btnBrowseVideoSource.addEventListener('click', (e) => {
-        e.stopPropagation();
-        videoSourceFileInput.click();
-    });
-
-    videoSourceDropzone.addEventListener('click', () => {
-        if (!state.video.sourceFile && !state.video.sourceTemplate) {
-            videoSourceFileInput.click();
-        }
-    });
-
-    videoSourceFileInput.addEventListener('change', (e) => {
-        if (e.target.files && e.target.files[0]) {
-            handleVideoSourceFile(e.target.files[0]);
-        }
-    });
-
-    function handleVideoSourceFile(file) {
-        if (!file.type.startsWith('image/')) {
-            alert('Please select a valid image file (JPG, PNG, WEBP).');
-            return;
-        }
-        state.video.sourceFile = file;
-        state.video.sourceTemplate = null;
-        videoSourcePresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
-
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            videoSourcePreviewImg.src = e.target.result;
-            videoSourceEmptyState.classList.add('hidden');
-            videoSourcePreviewState.classList.remove('hidden');
-        };
-        reader.readAsDataURL(file);
-    }
-
-    btnRemoveVideoSource.addEventListener('click', (e) => {
-        e.stopPropagation();
-        state.video.sourceFile = null;
-        state.video.sourceTemplate = null;
-        videoSourceFileInput.value = '';
-        videoSourcePreviewImg.src = '';
-        videoSourcePreviewState.classList.add('hidden');
-        videoSourceEmptyState.classList.remove('hidden');
-        videoSourcePresetsRow.querySelectorAll('.preset-thumb').forEach(t => t.classList.remove('active'));
-    });
-
-    // Video Target Upload
     btnBrowseVideoTarget.addEventListener('click', (e) => {
         e.stopPropagation();
         videoTargetFileInput.click();
@@ -460,11 +684,8 @@ document.addEventListener('DOMContentLoaded', () => {
         videoTargetPreviewState.classList.remove('hidden');
 
         videoTargetPreviewVideo.onloadedmetadata = () => {
-            const dur = videoTargetPreviewVideo.duration;
-            videoDurationBadge.innerHTML = `<i class="fa-solid fa-clock"></i> ${dur.toFixed(1)}s`;
-            if (dur > 30) {
-                videoDurationBadge.innerHTML += ` <span style="color:#f59e0b">(Max 30s)</span>`;
-            }
+            const dur = videoTargetPreviewVideo.duration.toFixed(1);
+            videoDurationBadge.innerHTML = `<i class="fa-solid fa-clock"></i> ${dur}s`;
         };
 
         extractPeopleFromVideo();
@@ -485,8 +706,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Drag & Drop for Video Dropzones
-    setupDragDrop(videoSourceDropzone, handleVideoSourceFile);
-    setupDragDrop(videoTargetDropzone, handleVideoTargetFile);
+    setupDragDrop(videoSourceDropzone, (files) => addVideoSourceFiles(files));
+    setupDragDrop(videoTargetDropzone, (files) => handleVideoTargetFile(files[0]));
 
     // Multi-Person Video Extraction
     async function extractPeopleFromVideo() {
@@ -575,7 +796,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         element.addEventListener('drop', (e) => {
             const files = e.dataTransfer.files;
-            if (files.length > 0) onFileDrop(files[0]);
+            if (files.length > 0) onFileDrop(files);
         });
     }
 
