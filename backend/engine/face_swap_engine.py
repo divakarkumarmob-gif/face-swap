@@ -71,10 +71,11 @@ def create_face_mask(size: int = 512) -> np.ndarray:
     mask = np.clip(mask / (np.max(mask) + 1e-6), 0.0, 1.0)
     return mask
 
-def create_landmark_face_mask_512(target_face, M_512: np.ndarray, size: int = 512) -> np.ndarray:
+def create_landmark_face_mask_512(target_face, M_512: np.ndarray, target_crop_512: Optional[np.ndarray] = None, size: int = 512) -> np.ndarray:
     """
     Creates a custom landmark-guided anatomical convex mask fitted to the exact
-    jawline, cheekbones, and eyebrow contours of the target face.
+    jawline, cheekbones, and eyebrow contours of the target face, with intelligent
+    occlusion protection for glasses, hair strands, and fingers.
     """
     lmks = None
     if hasattr(target_face, 'landmark_2d_106') and target_face.landmark_2d_106 is not None:
@@ -103,6 +104,17 @@ def create_landmark_face_mask_512(target_face, M_512: np.ndarray, size: int = 51
             mask[y, :] *= factor
         mask[:top_fade_start, :] = 0.0
 
+        # Smart Occlusion Protection: Protect glasses frames and foreground hair strands
+        if target_crop_512 is not None:
+            gray = cv2.cvtColor(target_crop_512, cv2.COLOR_BGR2GRAY)
+            # High-frequency dark structures in upper face (glasses frames, dark hair strands)
+            upper_roi = gray[:int(size * 0.65), :]
+            dark_thresh = np.percentile(upper_roi, 6)
+            occlusion = (gray < dark_thresh).astype(np.float32)
+            occlusion_blurred = cv2.GaussianBlur(occlusion, (15, 15), 3.0)
+            # Softly reduce swap mask weight where strong dark occlusions exist
+            mask *= (1.0 - np.clip(occlusion_blurred * 0.65, 0.0, 0.85))
+
         # Cinematic Gaussian feathering
         mask = cv2.GaussianBlur(mask, (55, 55), 16.0)
         mask = np.clip(mask / (np.max(mask) + 1e-6), 0.0, 1.0)
@@ -110,6 +122,45 @@ def create_landmark_face_mask_512(target_face, M_512: np.ndarray, size: int = 51
     except Exception as e:
         print(f"[FaceMask] Convex hull fallback: {e}")
         return create_face_mask(size)
+
+def apply_directional_lighting(swapped_face: np.ndarray, target_crop: np.ndarray, strength: float = 0.30) -> np.ndarray:
+    """
+    Extracts low-pass luminance shading distribution from the target face to cast
+    authentic directional shadows, sunlight angle, and specular cheek/nose highlights.
+    """
+    try:
+        tgt_gray = cv2.cvtColor(target_crop, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        tgt_shading = cv2.GaussianBlur(tgt_gray, (45, 45), 0)
+        tgt_mean_l = np.mean(tgt_shading)
+        if tgt_mean_l < 1.0:
+            return swapped_face
+            
+        light_mod = tgt_shading / max(1e-3, tgt_mean_l)
+        light_mod = np.clip(light_mod, 0.72, 1.32)
+        light_mod_3d = np.repeat(light_mod[:, :, np.newaxis], 3, axis=2)
+
+        relit = swapped_face.astype(np.float32) * (1.0 - strength + strength * light_mod_3d)
+        return np.clip(relit, 0, 255).astype(np.uint8)
+    except Exception as e:
+        print(f"[LightingTransfer] Fallback: {e}")
+        return swapped_face
+
+def match_camera_focus(swapped_face: np.ndarray, target_crop: np.ndarray) -> np.ndarray:
+    """
+    Measures target image focal plane sharpness and gently matches lens blur / bokeh
+    if the target photo was captured with shallow depth of field.
+    """
+    try:
+        tgt_lap = cv2.Laplacian(target_crop, cv2.CV_64F).var()
+        swap_lap = cv2.Laplacian(swapped_face, cv2.CV_64F).var()
+        
+        # If target has lens bokeh (substantially softer than AI swapped face), apply subtle focal blur
+        if swap_lap > 450.0 and tgt_lap < 180.0:
+            blur_sigma = np.clip((200.0 - tgt_lap) / 120.0, 0.3, 1.2)
+            return cv2.GaussianBlur(swapped_face, (0, 0), blur_sigma)
+        return swapped_face
+    except Exception as e:
+        return swapped_face
 
 def match_film_grain(swapped_face: np.ndarray, target_crop: np.ndarray) -> np.ndarray:
     """
@@ -354,6 +405,27 @@ class FaceSwapEngine:
             mean_emb /= norm
         return mean_emb
 
+    def get_multi_source_master_embedding(self, source_imgs: List[np.ndarray]) -> np.ndarray:
+        """
+        Fuses multiple photos of the same person (front, left, right, smile) into
+        a unified, high-accuracy Master 3D Identity embedding.
+        """
+        all_embs = []
+        for img in source_imgs:
+            face = self.get_face(img)
+            if face is not None:
+                aug_emb = self.get_augmented_source_embedding(img, face)
+                all_embs.append(aug_emb)
+
+        if not all_embs:
+            raise ValueError("No valid faces could be extracted from the uploaded source photos.")
+
+        master_emb = np.mean(all_embs, axis=0)
+        norm = np.linalg.norm(master_emb)
+        if norm > 1e-6:
+            master_emb /= norm
+        return master_emb
+
     def high_quality_blend(
         self,
         target_img: np.ndarray,
@@ -406,19 +478,27 @@ class FaceSwapEngine:
         else:
             bgr_fake_hd = bgr_fake_harmonized
 
-        # 6. Sensor Grain / Texture Matching
+        # 6. Directional Ambient Lighting & Specular Highlight Transfer
+        bgr_fake_lit = apply_directional_lighting(bgr_fake_hd, aimg_512, strength=0.25)
+
+        # 7. Camera Depth-of-Field & Bokeh Focus Matching
+        bgr_fake_focus = match_camera_focus(bgr_fake_lit, aimg_512)
+
+        # 8. Sensor Grain / Texture Matching
         if use_grain:
-            bgr_fake_hd = match_film_grain(bgr_fake_hd, aimg_512)
+            bgr_fake_final = match_film_grain(bgr_fake_focus, aimg_512)
+        else:
+            bgr_fake_final = bgr_fake_focus
 
-        # 7. Dense Landmark-Guided Anatomical 512x512 Mask (Preserves exact jawline & hairline)
-        crop_mask_512 = create_landmark_face_mask_512(target_face, M_512)
+        # 9. Dense Landmark-Guided Anatomical 512x512 Mask (With smart occlusion protection)
+        crop_mask_512 = create_landmark_face_mask_512(target_face, M_512, target_crop_512=aimg_512)
 
-        # 8. Scale Affine Matrix directly to 512x512 coordinate space
+        # 10. Scale Affine Matrix directly to 512x512 coordinate space
         IM_512 = cv2.invertAffineTransform(M_512)
         h, w = target_img.shape[:2]
 
         warped_face = cv2.warpAffine(
-            bgr_fake_hd, IM_512, (w, h),
+            bgr_fake_final, IM_512, (w, h),
             flags=cv2.INTER_LANCZOS4,
             borderMode=cv2.BORDER_REFLECT_101
         )
@@ -431,7 +511,7 @@ class FaceSwapEngine:
         
         warped_mask_3d = np.repeat(warped_mask[:, :, np.newaxis], 3, axis=2)
 
-        # 9. Ultra-smooth Alpha Composition at Native Resolution
+        # 11. Ultra-smooth Alpha Composition at Native Resolution
         target_f = target_img.astype(np.float32)
         warped_f = warped_face.astype(np.float32)
         
@@ -440,7 +520,7 @@ class FaceSwapEngine:
 
     def swap_image(
         self,
-        source_img_path: str,
+        source_img_paths: Any,
         target_img_path: str,
         output_path: str,
         use_enhancer: bool = True,
@@ -452,18 +532,26 @@ class FaceSwapEngine:
         if not self.is_initialized:
             self.initialize()
             
-        source_img = cv2.imread(source_img_path)
+        # Support single path or list of multiple source photo paths
+        if isinstance(source_img_paths, str):
+            source_paths = [source_img_paths]
+        else:
+            source_paths = list(source_img_paths)
+
+        source_imgs = []
+        for p in source_paths:
+            img = cv2.imread(p)
+            if img is not None:
+                source_imgs.append(img)
+
         target_img = cv2.imread(target_img_path)
         
-        if source_img is None or target_img is None:
+        if not source_imgs or target_img is None:
             raise ValueError("Could not read source or target image.")
             
-        source_face = self.get_face(source_img)
-        if source_face is None:
-            raise ValueError("No face detected in the source photo.")
-            
-        # Extract 100% Identity-locked multi-sample embedding
-        source_emb = self.get_augmented_source_embedding(source_img, source_face)
+        # Extract fused Master 3D Identity embedding
+        source_emb = self.get_multi_source_master_embedding(source_imgs)
+        source_face = self.get_face(source_imgs[0])
             
         target_faces = self.get_all_faces(target_img)
         if not target_faces:
@@ -487,7 +575,7 @@ class FaceSwapEngine:
 
     def process_video(
         self,
-        source_img_path: str,
+        source_img_paths: Any,
         target_video_path: str,
         output_video_path: str,
         max_duration_sec: float = 30.0,
@@ -505,7 +593,8 @@ class FaceSwapEngine:
         Processes target video frame by frame with:
         - Specific person targeting (or all people)
         - Multi-crop augmented source face identity lock
-        - Dense landmark-guided anatomical masks
+        - Dense landmark-guided anatomical masks with smart occlusion
+        - Directional lighting & camera depth of field matching
         - Temporal EMA smoothing & Lucas-Kanade optical tracking
         - GFPGAN HD enhancement
         - Audio preservation
@@ -513,16 +602,26 @@ class FaceSwapEngine:
         if not self.is_initialized:
             self.initialize()
             
-        source_img = cv2.imread(source_img_path)
-        if source_img is None:
-            raise ValueError("Could not read source face image.")
+        if isinstance(source_img_paths, str):
+            source_paths = [source_img_paths]
+        else:
+            source_paths = list(source_img_paths)
+
+        source_imgs = []
+        for p in source_paths:
+            img = cv2.imread(p)
+            if img is not None:
+                source_imgs.append(img)
+
+        if not source_imgs:
+            raise ValueError("Could not read source face image(s).")
             
-        source_face = self.get_face(source_img)
+        source_face = self.get_face(source_imgs[0])
         if source_face is None:
             raise ValueError("No face detected in source photo.")
 
-        # Extract 100% Identity-locked multi-sample embedding once for the video
-        source_emb = self.get_augmented_source_embedding(source_img, source_face)
+        # Extract 100% Identity-locked multi-sample master embedding once for the video
+        source_emb = self.get_multi_source_master_embedding(source_imgs)
 
         cap = cv2.VideoCapture(target_video_path)
         if not cap.isOpened():

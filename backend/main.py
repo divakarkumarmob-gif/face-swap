@@ -203,6 +203,7 @@ def get_engine_status():
 
 @app.post("/api/swap-photo")
 async def swap_photo(
+    source_files: Optional[List[UploadFile]] = File(None),
     source_file: Optional[UploadFile] = File(None),
     source_template: Optional[str] = Form(None),
     target_file: Optional[UploadFile] = File(None),
@@ -212,18 +213,28 @@ async def swap_photo(
 ):
     job_id = str(uuid.uuid4())[:8]
     
-    # 1. Source Face Path (Left side - Input photo jiska face lena h)
-    if source_file and source_file.filename:
-        src_ext = os.path.splitext(source_file.filename)[1] or ".jpg"
-        src_path = os.path.join(UPLOAD_DIR, f"src_photo_{job_id}{src_ext}")
-        with open(src_path, "wb") as f:
-            f.write(await source_file.read())
+    # 1. Source Face Path(s) (Support 1 to 4 uploaded source photos for 3D master fusion)
+    src_paths = []
+    all_source_uploads = []
+    if source_files:
+        all_source_uploads.extend([f for f in source_files if f and f.filename])
+    if source_file and source_file.filename and source_file not in all_source_uploads:
+        all_source_uploads.append(source_file)
+
+    if all_source_uploads:
+        for idx, s_file in enumerate(all_source_uploads[:4]):
+            src_ext = os.path.splitext(s_file.filename)[1] or ".jpg"
+            p = os.path.join(UPLOAD_DIR, f"src_photo_{job_id}_{idx}{src_ext}")
+            with open(p, "wb") as f:
+                f.write(await s_file.read())
+            src_paths.append(p)
     elif source_template:
-        src_path = os.path.join(SAMPLES_DIR, source_template)
-        if not os.path.exists(src_path):
+        t_path = os.path.join(SAMPLES_DIR, source_template)
+        if not os.path.exists(t_path):
             raise HTTPException(status_code=404, detail=f"Source template {source_template} not found")
+        src_paths.append(t_path)
     else:
-        raise HTTPException(status_code=400, detail="Please upload a source input photo or select a preset.")
+        raise HTTPException(status_code=400, detail="Please upload source input photo(s) or select a preset.")
 
     # 2. Target Photo Path (Right side - Jisme face swap karna h)
     if target_file and target_file.filename:
@@ -238,14 +249,16 @@ async def swap_photo(
     else:
         raise HTTPException(status_code=400, detail="Please upload a target photo or select a preset.")
 
+    primary_src = src_paths[0]
     jobs[job_id] = {
         "id": job_id,
         "type": "photo",
         "status": JobStatus.QUEUED,
         "progress": 0,
-        "message": "Job queued for photo face swap...",
+        "message": f"Queued with {len(src_paths)} source photo(s) for 3D Identity Fusion...",
         "created_at": time.time(),
-        "source_path": src_path,
+        "source_path": primary_src,
+        "source_paths": src_paths,
         "target_path": tgt_path,
         "use_enhancer": use_enhancer,
         "use_grain": use_grain,
@@ -257,7 +270,7 @@ async def swap_photo(
 
     thread = threading.Thread(
         target=run_photo_swap_job,
-        args=(job_id, src_path, tgt_path, use_enhancer, use_grain, 0.85, 0.28, 0.15),
+        args=(job_id, src_paths if len(src_paths) > 1 else primary_src, tgt_path, use_enhancer, use_grain, 0.85, 0.28, 0.15),
         daemon=True
     )
     thread.start()
@@ -266,8 +279,9 @@ async def swap_photo(
         "job_id": job_id,
         "type": "photo",
         "iteration": 1,
+        "num_sources": len(src_paths),
         "status": "queued",
-        "message": "Photo face swap started!"
+        "message": f"Photo face swap started with {len(src_paths)} source photo(s)!"
     }
 
 @app.post("/api/extract-video-faces")
@@ -298,41 +312,48 @@ async def extract_video_faces(
 
         faces = engine.extract_unique_faces_from_video(vid_path, UPLOAD_DIR)
         return {
-            "success": True,
-            "count": len(faces),
-            "faces": faces,
-            "temp_video_path": vid_path
+            "status": "success",
+            "faces": faces
         }
     except Exception as e:
-        print(f"Error extracting video faces: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/swap-video")
 async def swap_video(
-    background_tasks: BackgroundTasks,
+    source_files: Optional[List[UploadFile]] = File(None),
     source_file: Optional[UploadFile] = File(None),
     source_template: Optional[str] = Form(None),
     target_video: Optional[UploadFile] = File(None),
     target_template: Optional[str] = Form(None),
-    target_person_id: Optional[int] = Form(None),
-    target_person_embedding: Optional[str] = Form(None), # JSON string
     max_duration: float = Form(30.0),
+    target_person_id: Optional[int] = Form(None),
+    target_person_embedding: Optional[str] = Form(None),
     use_enhancer: bool = Form(True),
     use_smoothing: bool = Form(True),
     use_grain: bool = Form(True)
 ):
     job_id = str(uuid.uuid4())[:8]
     
-    # 1. Source Face Path
-    if source_file and source_file.filename:
-        src_ext = os.path.splitext(source_file.filename)[1] or ".jpg"
-        src_path = os.path.join(UPLOAD_DIR, f"src_{job_id}{src_ext}")
-        with open(src_path, "wb") as f:
-            f.write(await source_file.read())
+    # 1. Source Face Path(s)
+    src_paths = []
+    all_source_uploads = []
+    if source_files:
+        all_source_uploads.extend([f for f in source_files if f and f.filename])
+    if source_file and source_file.filename and source_file not in all_source_uploads:
+        all_source_uploads.append(source_file)
+
+    if all_source_uploads:
+        for idx, s_file in enumerate(all_source_uploads[:4]):
+            src_ext = os.path.splitext(s_file.filename)[1] or ".jpg"
+            p = os.path.join(UPLOAD_DIR, f"src_vid_{job_id}_{idx}{src_ext}")
+            with open(p, "wb") as f:
+                f.write(await s_file.read())
+            src_paths.append(p)
     elif source_template:
-        src_path = os.path.join(SAMPLES_DIR, source_template)
-        if not os.path.exists(src_path):
+        t_path = os.path.join(SAMPLES_DIR, source_template)
+        if not os.path.exists(t_path):
             raise HTTPException(status_code=404, detail=f"Source template {source_template} not found")
+        src_paths.append(t_path)
     else:
         raise HTTPException(status_code=400, detail="Please upload a source face photo or select a template.")
 
@@ -358,6 +379,7 @@ async def swap_video(
         except:
             emb_list = None
 
+    primary_src = src_paths[0]
     jobs[job_id] = {
         "id": job_id,
         "type": "video",
@@ -366,9 +388,10 @@ async def swap_video(
         "current_frame": 0,
         "total_frames": 0,
         "eta": "Calculating...",
-        "message": "Job added to queue...",
+        "message": f"Job queued with {len(src_paths)} source photo(s)...",
         "created_at": time.time(),
-        "source_path": src_path,
+        "source_path": primary_src,
+        "source_paths": src_paths,
         "target_path": tgt_path,
         "max_duration": max_duration,
         "target_person_id": target_person_id,
@@ -384,7 +407,7 @@ async def swap_video(
 
     thread = threading.Thread(
         target=run_video_swap_job,
-        args=(job_id, src_path, tgt_path, max_duration, target_person_id, emb_list, use_enhancer, use_smoothing, use_grain, 0.85, 0.28, 0.15),
+        args=(job_id, src_paths if len(src_paths) > 1 else primary_src, tgt_path, max_duration, target_person_id, emb_list, use_enhancer, use_smoothing, use_grain, 0.85, 0.28, 0.15),
         daemon=True
     )
     thread.start()
@@ -393,8 +416,9 @@ async def swap_video(
         "job_id": job_id,
         "type": "video",
         "iteration": 1,
+        "num_sources": len(src_paths),
         "status": "queued",
-        "message": "Face swap processing started!"
+        "message": f"Video face swap started with {len(src_paths)} source photo(s)!"
     }
 
 @app.post("/api/regenerate")
@@ -407,10 +431,11 @@ async def regenerate_swap(req: RegenerateRequest):
         raise HTTPException(status_code=404, detail="Previous job not found. Please upload fresh media.")
     
     prev_job = jobs[req.job_id]
-    src_path = prev_job.get("source_path")
+    src_paths = prev_job.get("source_paths") or [prev_job.get("source_path")]
+    src_path = src_paths if len(src_paths) > 1 else src_paths[0]
     tgt_path = prev_job.get("target_path")
     
-    if not src_path or not os.path.exists(src_path) or not tgt_path or not os.path.exists(tgt_path):
+    if not src_paths or not os.path.exists(src_paths[0]) or not tgt_path or not os.path.exists(tgt_path):
         raise HTTPException(status_code=400, detail="Original source or target files are no longer available.")
         
     new_job_id = str(uuid.uuid4())[:8]

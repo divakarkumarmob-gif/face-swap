@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Photo Mode State
         photo: {
             sourceFile: null,
+            sourceFiles: [],
             sourceTemplate: null,
             targetFile: null,
             targetTemplate: null
@@ -14,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Video Mode State
         video: {
             sourceFile: null,
+            sourceFiles: [],
             sourceTemplate: null,
             targetFile: null,
             targetTemplate: null,
@@ -37,6 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const photoSourceEmptyState = document.getElementById('photoSourceEmptyState');
     const photoSourcePreviewState = document.getElementById('photoSourcePreviewState');
     const photoSourcePreviewImg = document.getElementById('photoSourcePreviewImg');
+    const photoSourceFusionBadge = document.getElementById('photoSourceFusionBadge');
+    const photoMultiThumbnails = document.getElementById('photoMultiThumbnails');
     const btnBrowsePhotoSource = document.getElementById('btnBrowsePhotoSource');
     const btnRemovePhotoSource = document.getElementById('btnRemovePhotoSource');
     const photoSourcePresetsRow = document.getElementById('photoSourcePresetsRow');
@@ -60,6 +64,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const videoSourceEmptyState = document.getElementById('videoSourceEmptyState');
     const videoSourcePreviewState = document.getElementById('videoSourcePreviewState');
     const videoSourcePreviewImg = document.getElementById('videoSourcePreviewImg');
+    const videoSourceFusionBadge = document.getElementById('videoSourceFusionBadge');
+    const videoMultiThumbnails = document.getElementById('videoMultiThumbnails');
     const btnBrowseVideoSource = document.getElementById('btnBrowseVideoSource');
     const btnRemoveVideoSource = document.getElementById('btnRemoveVideoSource');
     const videoSourcePresetsRow = document.getElementById('videoSourcePresetsRow');
@@ -103,30 +109,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnDownloadMedia = document.getElementById('btnDownloadMedia');
     const downloadBtnText = document.getElementById('downloadBtnText');
     const btnNewSwap = document.getElementById('btnNewSwap');
+    const engineStatusPill = document.getElementById('engineStatusPill');
     const engineStatusText = document.getElementById('engineStatusText');
 
-    // =========================================================================
-    // Mode Switching Logic
-    // =========================================================================
-    function switchMode(mode) {
-        currentMode = mode;
-        resultsSection.classList.add('hidden');
+    // Tab Switching
+    tabPhoto.addEventListener('click', () => {
+        currentMode = 'photo';
+        tabPhoto.classList.add('active');
+        tabVideo.classList.remove('active');
+        photoModeContainer.classList.remove('hidden');
+        videoModeContainer.classList.add('hidden');
+    });
 
-        if (mode === 'photo') {
-            tabPhoto.classList.add('active');
-            tabVideo.classList.remove('active');
-            photoModeContainer.classList.remove('hidden');
-            videoModeContainer.classList.add('hidden');
-        } else {
-            tabVideo.classList.add('active');
-            tabPhoto.classList.remove('active');
-            videoModeContainer.classList.remove('hidden');
-            photoModeContainer.classList.add('hidden');
-        }
-    }
-
-    tabPhoto.addEventListener('click', () => switchMode('photo'));
-    tabVideo.addEventListener('click', () => switchMode('video'));
+    tabVideo.addEventListener('click', () => {
+        currentMode = 'video';
+        tabVideo.classList.add('active');
+        tabPhoto.classList.remove('active');
+        videoModeContainer.classList.remove('hidden');
+        photoModeContainer.classList.add('hidden');
+    });
 
     // =========================================================================
     // Backend Status Check
@@ -170,38 +171,47 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Populate Photo Target Presets
-            const targetPhotos = (data.target_photos && data.target_photos.length > 0) ? data.target_photos : data.faces;
-            if (targetPhotos && targetPhotos.length > 0) {
-                renderFacePresets(targetPhotos, photoTargetPresetsRow, (item, thumb) => {
-                    selectPhotoTargetPreset(item, thumb);
+            if (data.targets && data.targets.length > 0) {
+                renderFacePresets(data.targets, photoTargetPresetsRow, (tgt, thumb) => {
+                    selectPhotoTargetPreset(tgt, thumb);
                 });
             }
 
-            // Populate Video Presets
+            // Populate Video Target Presets
             if (data.videos && data.videos.length > 0) {
-                videoPresetsRow.innerHTML = '';
-                data.videos.forEach(vid => {
-                    const thumb = document.createElement('div');
-                    thumb.className = 'preset-thumb';
-                    thumb.title = vid.title;
-                    thumb.innerHTML = `<video src="${vid.url}" muted></video>`;
-                    thumb.addEventListener('click', () => selectVideoPreset(vid, thumb));
-                    videoPresetsRow.appendChild(thumb);
+                renderVideoPresets(data.videos, videoPresetsRow, (vid, thumb) => {
+                    selectVideoPreset(vid, thumb);
                 });
             }
+
         } catch (e) {
-            console.warn("Could not load templates:", e);
+            console.error("Failed to load sample templates", e);
         }
     }
 
-    function renderFacePresets(items, container, onClick) {
+    function renderFacePresets(items, container, onSelect) {
         container.innerHTML = '';
         items.forEach(item => {
             const thumb = document.createElement('div');
             thumb.className = 'preset-thumb';
-            thumb.title = item.title;
-            thumb.innerHTML = `<img src="${item.url}" alt="${item.title}">`;
-            thumb.addEventListener('click', () => onClick(item, thumb));
+            thumb.title = item.name;
+            thumb.innerHTML = `<img src="${item.url}" alt="${item.name}">`;
+            thumb.addEventListener('click', () => onSelect(item, thumb));
+            container.appendChild(thumb);
+        });
+    }
+
+    function renderVideoPresets(items, container, onSelect) {
+        container.innerHTML = '';
+        items.forEach(item => {
+            const thumb = document.createElement('div');
+            thumb.className = 'preset-thumb video-preset-thumb';
+            thumb.title = item.name;
+            thumb.innerHTML = `
+                <img src="${item.thumbnail || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150'}" alt="${item.name}">
+                <i class="fa-solid fa-play preset-play-icon"></i>
+            `;
+            thumb.addEventListener('click', () => onSelect(item, thumb));
             container.appendChild(thumb);
         });
     }
@@ -216,6 +226,7 @@ document.addEventListener('DOMContentLoaded', () => {
         el.classList.add('active');
 
         state.photo.sourceFile = null;
+        state.photo.sourceFiles = [];
         state.photo.sourceTemplate = face.id;
 
         photoSourcePreviewImg.src = face.url;
@@ -572,7 +583,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // EXECUTE PHOTO FACE SWAP
     // =========================================================================
     btnStartPhotoSwap.addEventListener('click', async () => {
-        if (!state.photo.sourceFile && !state.photo.sourceTemplate) {
+        const hasSource = (state.photo.sourceFiles && state.photo.sourceFiles.length > 0) || state.photo.sourceFile || state.photo.sourceTemplate;
+        if (!hasSource) {
             alert('Please upload an Input Face Photo on the left side first!');
             return;
         }
@@ -583,7 +595,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const formData = new FormData();
-        if (state.photo.sourceFile) {
+        if (state.photo.sourceFiles && state.photo.sourceFiles.length > 0) {
+            state.photo.sourceFiles.forEach(f => {
+                formData.append('source_files', f);
+            });
+        } else if (state.photo.sourceFile) {
             formData.append('source_file', state.photo.sourceFile);
         } else if (state.photo.sourceTemplate) {
             formData.append('source_template', state.photo.sourceTemplate);
@@ -600,7 +616,8 @@ document.addEventListener('DOMContentLoaded', () => {
         formData.append('use_enhancer', useEnhancer);
         formData.append('use_grain', useGrain);
 
-        showProgressModal("Processing Photo Face Swap...", "Analyzing faces & blending high-definition neural swap...");
+        const countText = state.photo.sourceFiles.length > 1 ? ` (${state.photo.sourceFiles.length} Photos 3D Fusion)` : "";
+        showProgressModal(`Processing Photo Face Swap${countText}...`, "Analyzing landmarks, directional lighting & neural 512x512 restoration...");
 
         try {
             const res = await fetch('/api/swap-photo', {
@@ -627,7 +644,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // EXECUTE VIDEO FACE SWAP
     // =========================================================================
     btnStartVideoSwap.addEventListener('click', async () => {
-        if (!state.video.sourceFile && !state.video.sourceTemplate) {
+        const hasSource = (state.video.sourceFiles && state.video.sourceFiles.length > 0) || state.video.sourceFile || state.video.sourceTemplate;
+        if (!hasSource) {
             alert('Please upload an Input Face Photo on the left side first!');
             return;
         }
@@ -638,7 +656,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const formData = new FormData();
-        if (state.video.sourceFile) {
+        if (state.video.sourceFiles && state.video.sourceFiles.length > 0) {
+            state.video.sourceFiles.forEach(f => {
+                formData.append('source_files', f);
+            });
+        } else if (state.video.sourceFile) {
             formData.append('source_file', state.video.sourceFile);
         } else if (state.video.sourceTemplate) {
             formData.append('source_template', state.video.sourceTemplate);
@@ -668,7 +690,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        showProgressModal("Processing Video Face Swap...", "Rendering video frames with facial tracking & audio preserve...");
+        const countText = state.video.sourceFiles.length > 1 ? ` (${state.video.sourceFiles.length} Photos 3D Fusion)` : "";
+        showProgressModal(`Processing Video Face Swap${countText}...`, "Rendering video frames with optical tracking, directional lighting & audio preservation...");
 
         try {
             const res = await fetch('/api/swap-video', {

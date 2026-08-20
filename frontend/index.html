@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="style.css?v=2.2">
+    <link rel="stylesheet" href="style.css?v=3.0">
 </head>
 <body>
     <!-- Background Glow Blobs -->
@@ -79,25 +79,27 @@
                     </div>
 
                     <div class="upload-dropzone" id="photoSourceDropzone">
-                        <input type="file" id="photoSourceFileInput" accept="image/png, image/jpeg, image/webp" hidden>
+                        <input type="file" id="photoSourceFileInput" accept="image/png, image/jpeg, image/webp" multiple hidden>
                         
                         <div class="dropzone-empty" id="photoSourceEmptyState">
                             <div class="upload-icon-circle">
-                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                <i class="fa-solid fa-camera-rotate"></i>
                             </div>
-                            <h3>Input Photo (Source Face)</h3>
-                            <p class="file-limits">JPG, PNG, WEBP (Max 15MB)</p>
-                            <button type="button" class="btn btn-outline" id="btnBrowsePhotoSource">Browse Photo</button>
+                            <h3>Input Face Photo (1 to 4 Photos)</h3>
+                            <p class="file-limits">Upload 1 to 4 photos for 3D Master Identity Fusion</p>
+                            <button type="button" class="btn btn-outline" id="btnBrowsePhotoSource"><i class="fa-solid fa-images"></i> Browse Photo(s)</button>
                         </div>
 
                         <div class="preview-container hidden" id="photoSourcePreviewState">
                             <img id="photoSourcePreviewImg" src="" alt="Input Face Photo">
                             <div class="preview-overlay">
-                                <span class="face-tag"><i class="fa-solid fa-check-circle"></i> Input Face Loaded</span>
-                                <button type="button" class="btn-icon btn-remove" id="btnRemovePhotoSource" title="Remove Photo">
+                                <span class="face-tag" id="photoSourceFusionBadge"><i class="fa-solid fa-dna"></i> 3D Master Identity Ready</span>
+                                <button type="button" class="btn-icon btn-remove" id="btnRemovePhotoSource" title="Remove Photo(s)">
                                     <i class="fa-solid fa-xmark"></i>
                                 </button>
                             </div>
+                            <!-- Multi-photo thumbnail strip -->
+                            <div class="multi-photos-strip hidden" id="photoMultiThumbnails"></div>
                         </div>
                     </div>
 
@@ -192,25 +194,27 @@
                     </div>
 
                     <div class="upload-dropzone" id="videoSourceDropzone">
-                        <input type="file" id="videoSourceFileInput" accept="image/png, image/jpeg, image/webp" hidden>
+                        <input type="file" id="videoSourceFileInput" accept="image/png, image/jpeg, image/webp" multiple hidden>
                         
                         <div class="dropzone-empty" id="videoSourceEmptyState">
                             <div class="upload-icon-circle">
-                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                <i class="fa-solid fa-camera-rotate"></i>
                             </div>
-                            <h3>Choose or drag photo</h3>
-                            <p class="file-limits">JPG, PNG, WEBP (Max 10MB)</p>
-                            <button type="button" class="btn btn-outline" id="btnBrowseVideoSource">Browse Photo</button>
+                            <h3>Input Face Photo (1 to 4 Photos)</h3>
+                            <p class="file-limits">Upload 1 to 4 photos for 3D Master Identity Fusion</p>
+                            <button type="button" class="btn btn-outline" id="btnBrowseVideoSource"><i class="fa-solid fa-images"></i> Browse Photo(s)</button>
                         </div>
 
                         <div class="preview-container hidden" id="videoSourcePreviewState">
                             <img id="videoSourcePreviewImg" src="" alt="Source Face">
                             <div class="preview-overlay">
-                                <span class="face-tag"><i class="fa-solid fa-check-circle"></i> Face Loaded</span>
-                                <button type="button" class="btn-icon btn-remove" id="btnRemoveVideoSource" title="Remove Photo">
+                                <span class="face-tag" id="videoSourceFusionBadge"><i class="fa-solid fa-dna"></i> 3D Master Identity Ready</span>
+                                <button type="button" class="btn-icon btn-remove" id="btnRemoveVideoSource" title="Remove Photo(s)">
                                     <i class="fa-solid fa-xmark"></i>
                                 </button>
                             </div>
+                            <!-- Multi-photo thumbnail strip -->
+                            <div class="multi-photos-strip hidden" id="videoMultiThumbnails"></div>
                         </div>
                     </div>
 
@@ -497,6 +501,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=2.2"></script>
+    <script src="app.js?v=3.0"></script>
 </body>
 </html>
