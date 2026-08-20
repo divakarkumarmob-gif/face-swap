@@ -2,6 +2,19 @@
 
 High-Fidelity, Movie-Grade AI Face Swapping Web Studio powered by **FastAPI**, **InSwapper 128**, **GFPGAN 1.4 HD**, and **InsightFace (Buffalo_L)**.
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/divakarkumarmob-gif/face-swap/blob/main/face_swap_colab.ipynb)
+
+---
+
+## ⚡ 1-Click Free Google Colab Deployment (NVIDIA T4 GPU)
+
+Click the badge above or open this link in your browser:
+👉 **[Open in Google Colab](https://colab.research.google.com/github/divakarkumarmob-gif/face-swap/blob/main/face_swap_colab.ipynb)**
+
+1. In Colab, select **Runtime > Change runtime type > T4 GPU**.
+2. Run the 3 code cells.
+3. Click the generated **`https://xxxx.trycloudflare.com`** live link to use your web app with free GPU speed from anywhere!
+
 ---
 
 ## ⚡ System Requirements
