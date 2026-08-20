@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FaceMorph AI - Pro Photo & Video Face Swap Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Background Glow Blobs -->
+    <div class="glow-bg">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+        <div class="blob blob-3"></div>
+    </div>
+
+    <!-- Header / Navbar -->
+    <header class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <div class="logo-icon">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                </div>
+                <div class="logo-text">
+                    <span class="brand-title">FaceMorph <span class="badge-pro">PRO AI</span></span>
+                    <span class="brand-subtitle">Photo & 30s Video Face Swap Studio</span>
+                </div>
+            </div>
+
+            <div class="nav-status">
+                <div class="status-pill" id="engineStatusPill">
+                    <span class="status-dot"></span>
+                    <span id="engineStatusText">AI Ready</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Studio Container -->
+    <main class="main-layout">
+        <!-- Hero Section -->
+        <section class="hero-section">
+            <h1 class="hero-title">Swap Any Face in <span class="gradient-text">Photos & Videos</span></h1>
+            <p class="hero-desc">Choose between <strong>Face Swap Photo</strong> and <strong>Face Swap Video</strong>. Place the source face on the left and the target media on the right for photorealistic AI results.</p>
+
+            <!-- Mode Switcher Tabs -->
+            <div class="mode-switcher-wrapper">
+                <div class="mode-switcher" id="modeSwitcher">
+                    <button type="button" class="mode-tab active" id="tabPhoto" data-mode="photo">
+                        <i class="fa-solid fa-camera-retro"></i>
+                        <span>Face Swap Photo</span>
+                        <span class="tab-pill">Instant</span>
+                    </button>
+                    <button type="button" class="mode-tab" id="tabVideo" data-mode="video">
+                        <i class="fa-solid fa-film"></i>
+                        <span>Face Swap Video</span>
+                        <span class="tab-pill">Up to 30s</span>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================== -->
+        <!-- PHOTO MODE CONTAINER -->
+        <!-- ============================================== -->
+        <section class="studio-mode-container" id="photoModeContainer">
+            <!-- Studio Workspace Grid for Photo -->
+            <div class="studio-grid">
+                <!-- Left Side: Source Face Photo (Input Photo) -->
+                <div class="card source-card">
+                    <div class="card-header">
+                        <div class="card-badge"><i class="fa-solid fa-user-circle"></i> Left Side • Step 1</div>
+                        <h2>Input Face Photo</h2>
+                        <p>Upload the portrait face you want to swap from</p>
+                    </div>
+
+                    <div class="upload-dropzone" id="photoSourceDropzone">
+                        <input type="file" id="photoSourceFileInput" accept="image/png, image/jpeg, image/webp" hidden>
+                        
+                        <div class="dropzone-empty" id="photoSourceEmptyState">
+                            <div class="upload-icon-circle">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                            </div>
+                            <h3>Input Photo (Source Face)</h3>
+                            <p class="file-limits">JPG, PNG, WEBP (Max 15MB)</p>
+                            <button type="button" class="btn btn-outline" id="btnBrowsePhotoSource">Browse Photo</button>
+                        </div>
+
+                        <div class="preview-container hidden" id="photoSourcePreviewState">
+                            <img id="photoSourcePreviewImg" src="" alt="Input Face Photo">
+                            <div class="preview-overlay">
+                                <span class="face-tag"><i class="fa-solid fa-check-circle"></i> Input Face Loaded</span>
+                                <button type="button" class="btn-icon btn-remove" id="btnRemovePhotoSource" title="Remove Photo">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Presets -->
+                    <div class="presets-section">
+                        <span class="presets-title"><i class="fa-solid fa-sparkles"></i> Or select a demo face:</span>
+                        <div class="presets-row" id="photoSourcePresetsRow">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Side: Target Photo (Jisme face swap karna h) -->
+                <div class="card target-card">
+                    <div class="card-header">
+                        <div class="card-badge"><i class="fa-solid fa-image"></i> Right Side • Step 2</div>
+                        <h2>Target Photo (Destination)</h2>
+                        <p>Upload the photo in which you want to swap the face</p>
+                    </div>
+
+                    <div class="upload-dropzone" id="photoTargetDropzone">
+                        <input type="file" id="photoTargetFileInput" accept="image/png, image/jpeg, image/webp" hidden>
+                        
+                        <div class="dropzone-empty" id="photoTargetEmptyState">
+                            <div class="upload-icon-circle accent-target">
+                                <i class="fa-solid fa-camera"></i>
+                            </div>
+                            <h3>Target Photo (To Swap Into)</h3>
+                            <p class="file-limits">JPG, PNG, WEBP (Max 25MB)</p>
+                            <button type="button" class="btn btn-outline" id="btnBrowsePhotoTarget">Browse Target Photo</button>
+                        </div>
+
+                        <div class="preview-container hidden" id="photoTargetPreviewState">
+                            <img id="photoTargetPreviewImg" src="" alt="Target Photo">
+                            <div class="preview-overlay">
+                                <span class="face-tag target-tag"><i class="fa-solid fa-bullseye"></i> Target Loaded</span>
+                                <button type="button" class="btn-icon btn-remove" id="btnRemovePhotoTarget" title="Remove Target Photo">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Presets -->
+                    <div class="presets-section">
+                        <span class="presets-title"><i class="fa-solid fa-wand-magic-sparkles"></i> Or select a sample target photo:</span>
+                        <div class="presets-row" id="photoTargetPresetsRow">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Configuration & Action Bar for Photo -->
+            <div class="action-panel">
+                <div class="action-settings">
+                    <div class="realism-toggles">
+                        <label class="toggle-control" title="Restores high definition facial details, eye sharpness, and skin pores">
+                            <input type="checkbox" id="togglePhotoEnhancer" checked>
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-label"><i class="fa-solid fa-wand-magic"></i> HD Enhancer (GFPGAN)</span>
+                        </label>
+
+                        <label class="toggle-control" title="Matches natural camera sensor grain to remove plastic look">
+                            <input type="checkbox" id="togglePhotoGrain" checked>
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-label"><i class="fa-solid fa-sparkles"></i> Film Grain Match</span>
+                        </label>
+                    </div>
+                </div>
+
+                <button type="button" class="btn btn-primary btn-generate" id="btnStartPhotoSwap">
+                    <span class="btn-glow"></span>
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    <span class="btn-text">Generate Face Swapped Photo</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- ============================================== -->
+        <!-- VIDEO MODE CONTAINER -->
+        <!-- ============================================== -->
+        <section class="studio-mode-container hidden" id="videoModeContainer">
+            <!-- Studio Workspace Grid for Video -->
+            <div class="studio-grid">
+                <!-- Left Side: Source Face Photo (Input Photo) -->
+                <div class="card source-card">
+                    <div class="card-header">
+                        <div class="card-badge"><i class="fa-solid fa-user"></i> Left Side • Step 1</div>
+                        <h2>Input Face Photo</h2>
+                        <p>Upload a clear front-facing portrait photo</p>
+                    </div>
+
+                    <div class="upload-dropzone" id="videoSourceDropzone">
+                        <input type="file" id="videoSourceFileInput" accept="image/png, image/jpeg, image/webp" hidden>
+                        
+                        <div class="dropzone-empty" id="videoSourceEmptyState">
+                            <div class="upload-icon-circle">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                            </div>
+                            <h3>Choose or drag photo</h3>
+                            <p class="file-limits">JPG, PNG, WEBP (Max 10MB)</p>
+                            <button type="button" class="btn btn-outline" id="btnBrowseVideoSource">Browse Photo</button>
+                        </div>
+
+                        <div class="preview-container hidden" id="videoSourcePreviewState">
+                            <img id="videoSourcePreviewImg" src="" alt="Source Face">
+                            <div class="preview-overlay">
+                                <span class="face-tag"><i class="fa-solid fa-check-circle"></i> Face Loaded</span>
+                                <button type="button" class="btn-icon btn-remove" id="btnRemoveVideoSource" title="Remove Photo">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Presets -->
+                    <div class="presets-section">
+                        <span class="presets-title"><i class="fa-solid fa-sparkles"></i> Or pick a demo face:</span>
+                        <div class="presets-row" id="videoSourcePresetsRow">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Side: Target Video Clip -->
+                <div class="card target-card">
+                    <div class="card-header">
+                        <div class="card-badge"><i class="fa-solid fa-film"></i> Right Side • Step 2</div>
+                        <h2>Target Video Clip</h2>
+                        <p>Upload the video clip in which you want to swap the face</p>
+                    </div>
+
+                    <div class="upload-dropzone" id="videoTargetDropzone">
+                        <input type="file" id="videoTargetFileInput" accept="video/mp4, video/webm, video/quicktime" hidden>
+                        
+                        <div class="dropzone-empty" id="videoTargetEmptyState">
+                            <div class="upload-icon-circle accent-target">
+                                <i class="fa-solid fa-video"></i>
+                            </div>
+                            <h3>Choose or drag video</h3>
+                            <p class="file-limits">MP4, WEBM, MOV (Max 30s duration)</p>
+                            <button type="button" class="btn btn-outline" id="btnBrowseVideoTarget">Browse Video</button>
+                        </div>
+
+                        <div class="preview-container hidden" id="videoTargetPreviewState">
+                            <video id="videoTargetPreviewVideo" controls loop playsinline></video>
+                            <div class="preview-overlay video-overlay">
+                                <span class="duration-badge" id="videoDurationBadge"><i class="fa-solid fa-clock"></i> 0.0s</span>
+                                <button type="button" class="btn-icon btn-remove" id="btnRemoveVideoTarget" title="Remove Video">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Detected People Selection (Multi-Person Support) -->
+                    <div class="target-people-section hidden" id="targetPeopleSection">
+                        <div class="section-subtitle">
+                            <span><i class="fa-solid fa-users-viewfinder"></i> Select Person to Replace:</span>
+                            <span class="people-detected-badge" id="peopleDetectedCount">0 Detected</span>
+                        </div>
+                        <div class="people-chips-container" id="peopleChipsContainer">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Sample Videos Preset -->
+                    <div class="presets-section">
+                        <span class="presets-title"><i class="fa-solid fa-clapperboard"></i> Or select a demo video:</span>
+                        <div class="presets-row" id="videoPresetsRow">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Configuration & Action Bar for Video -->
+            <div class="action-panel">
+                <div class="action-settings">
+                    <div class="setting-item">
+                        <label for="durationSelect"><i class="fa-solid fa-scissors"></i> Max Video Duration:</label>
+                        <select id="durationSelect" class="styled-select">
+                            <option value="5">5 Seconds (Fast Preview)</option>
+                            <option value="10">10 Seconds (Balanced)</option>
+                            <option value="15">15 Seconds (Standard)</option>
+                            <option value="30" selected>30 Seconds (Full Video)</option>
+                        </select>
+                    </div>
+
+                    <div class="realism-toggles">
+                        <label class="toggle-control" title="Restores high definition facial details, eye sharpness, and skin pores">
+                            <input type="checkbox" id="toggleVideoEnhancer" checked>
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-label"><i class="fa-solid fa-wand-magic"></i> HD Enhancer (GFPGAN)</span>
+                        </label>
+
+                        <label class="toggle-control" title="Smoothes motion across consecutive frames to eliminate jitter/flicker">
+                            <input type="checkbox" id="toggleVideoSmoothing" checked>
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-label"><i class="fa-solid fa-video"></i> Anti-Jitter Smooth</span>
+                        </label>
+
+                        <label class="toggle-control" title="Matches natural camera sensor grain to remove plastic look">
+                            <input type="checkbox" id="toggleVideoGrain" checked>
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-label"><i class="fa-solid fa-sparkles"></i> Film Grain Match</span>
+                        </label>
+                    </div>
+                </div>
+
+                <button type="button" class="btn btn-primary btn-generate" id="btnStartVideoSwap">
+                    <span class="btn-glow"></span>
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                    <span class="btn-text">Generate Face Swapped Video</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- ============================================== -->
+        <!-- RESULTS SHOWCASE SECTION (PHOTO & VIDEO) -->
+        <!-- ============================================== -->
+        <section class="results-section hidden" id="resultsSection">
+            <div class="results-header">
+                <div class="badge-success"><i class="fa-solid fa-circle-check"></i> Face Swap Complete!</div>
+                <h2 id="resultsTitle">Your Transformed Result</h2>
+                <p id="resultsSubtitle">Preview side-by-side or download your HD face-swapped media below.</p>
+            </div>
+
+            <!-- Dynamic Result Grid -->
+            <div class="results-grid" id="resultsGrid">
+                <!-- Swapped Output Card -->
+                <div class="result-player-card">
+                    <div class="player-header-row">
+                        <div class="player-label"><i class="fa-solid fa-sparkles"></i> Swapped Result (AI Output)</div>
+                        <span class="version-badge" id="resultVersionBadge"><i class="fa-solid fa-code-branch"></i> Version 1</span>
+                    </div>
+                    <div class="media-wrapper" id="swappedMediaWrapper">
+                        <img id="swappedPhotoResult" class="result-img hidden" src="" alt="Swapped Face Result">
+                        <video id="swappedVideoPlayer" class="result-vid hidden" controls playsinline></video>
+                    </div>
+                    <div class="player-actions">
+                        <a id="btnDownloadMedia" href="#" download="swapped_output" class="btn btn-primary btn-download">
+                            <i class="fa-solid fa-download"></i> <span id="downloadBtnText">Download HD Result</span>
+                        </a>
+                        <button type="button" class="btn btn-outline" id="btnTogglePreviousVersion" style="display:none;">
+                            <i class="fa-solid fa-code-compare"></i> Compare v1/v2
+                        </button>
+                        <button type="button" class="btn btn-outline" id="btnNewSwap">
+                            <i class="fa-solid fa-rotate-right"></i> Swap Another
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Original Comparison Card -->
+                <div class="result-player-card">
+                    <div class="player-header-row">
+                        <div class="player-label"><i class="fa-solid fa-camera"></i> Original Target</div>
+                        <span class="version-badge original-badge">Target Source</span>
+                    </div>
+                    <div class="media-wrapper" id="originalMediaWrapper">
+                        <img id="originalPhotoResult" class="result-img hidden" src="" alt="Original Target Photo">
+                        <video id="originalVideoPlayer" class="result-vid hidden" controls playsinline></video>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================== -->
+            <!-- SMART REGENERATE & QUALITY IMPROVEMENT SUITE -->
+            <!-- ============================================== -->
+            <div class="regeneration-suite" id="regenerationSuite">
+                <div class="regen-header">
+                    <div class="regen-icon-title">
+                        <div class="regen-pulse-icon">
+                            <i class="fa-solid fa-arrows-rotate"></i>
+                        </div>
+                        <div>
+                            <h3>Face pasand nahi aaya? 🔄 Regenerate & Improve Quality</h3>
+                            <p>Tell the AI what to improve — choose a tuning mode to regenerate with higher likeness, HD pores, or better lighting in 1-click:</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Preset Selection Grid -->
+                <div class="regen-presets-grid">
+                    <div class="regen-card active" data-preset="auto_improve">
+                        <div class="regen-card-radio"></div>
+                        <div class="regen-card-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+                        <div class="regen-card-info">
+                            <h4>Smart Auto-Improve</h4>
+                            <p>AI automatically optimizes likeness and boosts HD sharpness pass</p>
+                        </div>
+                        <span class="regen-pill recommended">Recommended</span>
+                    </div>
+
+                    <div class="regen-card" data-preset="max_likeness">
+                        <div class="regen-card-radio"></div>
+                        <div class="regen-card-icon"><i class="fa-solid fa-fingerprint"></i></div>
+                        <div class="regen-card-info">
+                            <h4>100% Input Likeness</h4>
+                            <p>Forces exact source face shape, eye geometry & true skin complexion</p>
+                        </div>
+                        <span class="regen-pill">Exact Face</span>
+                    </div>
+
+                    <div class="regen-card" data-preset="ultra_hd">
+                        <div class="regen-card-radio"></div>
+                        <div class="regen-card-icon"><i class="fa-solid fa-gem"></i></div>
+                        <div class="regen-card-info">
+                            <h4>Ultra-HD & Sharp Eyes</h4>
+                            <p>Maximum GFPGAN restoration for skin pores, iris depth & crisp clarity</p>
+                        </div>
+                        <span class="regen-pill">Ultra HD</span>
+                    </div>
+
+                    <div class="regen-card" data-preset="ambient_blend">
+                        <div class="regen-card-radio"></div>
+                        <div class="regen-card-icon"><i class="fa-solid fa-sun"></i></div>
+                        <div class="regen-card-info">
+                            <h4>Cinematic Ambient Blend</h4>
+                            <p>Smooth lighting harmonization with feather-soft border blending</p>
+                        </div>
+                        <span class="regen-pill">Soft Blend</span>
+                    </div>
+                </div>
+
+                <!-- Expandable Custom Sliders Drawer -->
+                <details class="regen-advanced-drawer">
+                    <summary class="drawer-summary">
+                        <span><i class="fa-solid fa-sliders"></i> Advanced Custom Fine-Tuning (Optional Sliders)</span>
+                        <i class="fa-solid fa-chevron-down drawer-chevron"></i>
+                    </summary>
+                    <div class="sliders-grid">
+                        <div class="slider-group">
+                            <div class="slider-header">
+                                <label for="sliderFidelity">Face Likeness / GFPGAN Fidelity:</label>
+                                <span id="valFidelity" class="slider-val">90%</span>
+                            </div>
+                            <input type="range" id="sliderFidelity" min="50" max="100" value="90" class="custom-slider">
+                            <span class="slider-hint">Higher = More authentic likeness to input photo</span>
+                        </div>
+
+                        <div class="slider-group">
+                            <div class="slider-header">
+                                <label for="sliderColor">Lighting Harmonization (Color Transfer):</label>
+                                <span id="valColor" class="slider-val">25%</span>
+                            </div>
+                            <input type="range" id="sliderColor" min="10" max="60" value="25" class="custom-slider">
+                            <span class="slider-hint">Lower = Keeps original face complexion; Higher = Matches background lighting</span>
+                        </div>
+
+                        <div class="slider-group">
+                            <div class="slider-header">
+                                <label for="sliderSharpen">Micro-Detail Sharpness:</label>
+                                <span id="valSharpen" class="slider-val">20%</span>
+                            </div>
+                            <input type="range" id="sliderSharpen" min="0" max="40" value="20" class="custom-slider">
+                            <span class="slider-hint">Boosts crispness in eyes, eyelashes, and dental details</span>
+                        </div>
+                    </div>
+                </details>
+
+                <!-- Regenerate Action Bar -->
+                <div class="regen-action-bar">
+                    <button type="button" class="btn btn-primary btn-regenerate" id="btnRegenerateNow">
+                        <span class="btn-glow"></span>
+                        <i class="fa-solid fa-rotate"></i>
+                        <span id="btnRegenerateText">Regenerate Face Swap Now</span>
+                    </button>
+                    <span class="regen-tip-text"><i class="fa-solid fa-circle-info"></i> Instant retry with stored high-res source media — no need to re-upload!</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Progress Modal -->
+    <div class="modal-overlay hidden" id="progressModal">
+        <div class="modal-card">
+            <div class="modal-icon-spinner">
+                <div class="spinner-glow"></div>
+                <i class="fa-solid fa-bolt modal-pulse-icon"></i>
+            </div>
+            <h2 id="modalTitle">Processing Your Face Swap...</h2>
+            <p class="modal-status-text" id="modalStatusText">Initializing AI Face Inswapper Engine...</p>
+
+            <div class="progress-bar-wrapper">
+                <div class="progress-bar-fill" id="progressBarFill" style="width: 0%"></div>
+            </div>
+
+            <div class="progress-stats">
+                <span id="progressPercent">0%</span>
+                <span id="progressFrames">Initializing...</span>
+                <span id="progressEta"><i class="fa-solid fa-hourglass-half"></i> ETA: --</span>
+            </div>
+
+            <p class="modal-hint"><i class="fa-solid fa-circle-info"></i> High-fidelity deep neural face swapping with InsightFace and GFPGAN detail enhancement.</p>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

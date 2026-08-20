@@ -1,0 +1,30 @@
+# Python Virtual Environment
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache & compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Large AI Model Weights (Auto-downloaded by model_downloader.py)
+backend/models/*.onnx
+backend/models/*.pth
+backend/models/*.bin
+*.onnx
+
+# Uploads & Outputs (User temp media)
+uploads/*
+!uploads/.gitkeep
+outputs/*
+!outputs/.gitkeep
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
