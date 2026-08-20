@@ -71,6 +71,46 @@ def create_face_mask(size: int = 512) -> np.ndarray:
     mask = np.clip(mask / (np.max(mask) + 1e-6), 0.0, 1.0)
     return mask
 
+def create_landmark_face_mask_512(target_face, M_512: np.ndarray, size: int = 512) -> np.ndarray:
+    """
+    Creates a custom landmark-guided anatomical convex mask fitted to the exact
+    jawline, cheekbones, and eyebrow contours of the target face.
+    """
+    lmks = None
+    if hasattr(target_face, 'landmark_2d_106') and target_face.landmark_2d_106 is not None:
+        lmks = target_face.landmark_2d_106
+    elif hasattr(target_face, 'landmark_3d_68') and target_face.landmark_3d_68 is not None:
+        lmks = target_face.landmark_3d_68[:, :2]
+    elif hasattr(target_face, 'kps') and target_face.kps is not None:
+        lmks = target_face.kps
+
+    if lmks is None:
+        return create_face_mask(size)
+
+    try:
+        # Transform landmarks into 512x512 aligned crop coordinate space
+        lmks_512 = np.dot(lmks, M_512[:2, :2].T) + M_512[:2, 2]
+        hull = cv2.convexHull(lmks_512.astype(np.int32))
+
+        mask = np.zeros((size, size), dtype=np.float32)
+        cv2.fillConvexPoly(mask, hull, 1.0)
+
+        # Soft forehead top fade-off to protect natural hairline/hair strands
+        top_fade_start = int(size * 0.16)
+        top_fade_end = int(size * 0.32)
+        for y in range(top_fade_start, top_fade_end):
+            factor = (y - top_fade_start) / float(top_fade_end - top_fade_start)
+            mask[y, :] *= factor
+        mask[:top_fade_start, :] = 0.0
+
+        # Cinematic Gaussian feathering
+        mask = cv2.GaussianBlur(mask, (55, 55), 16.0)
+        mask = np.clip(mask / (np.max(mask) + 1e-6), 0.0, 1.0)
+        return mask
+    except Exception as e:
+        print(f"[FaceMask] Convex hull fallback: {e}")
+        return create_face_mask(size)
+
 def match_film_grain(swapped_face: np.ndarray, target_crop: np.ndarray) -> np.ndarray:
     """
     Measures sensor noise / film grain from target skin and synthesizes
@@ -290,12 +330,37 @@ class FaceSwapEngine:
 
         return results
 
+    def get_augmented_source_embedding(self, source_img: np.ndarray, source_face) -> np.ndarray:
+        """
+        Extracts multi-scale and slightly rotated crops of the source photo
+        and computes a normalized average embedding vector for 100% identity lock.
+        """
+        embs = [source_face.normed_embedding]
+        h, w = source_img.shape[:2]
+        
+        for scale in [0.96, 1.04]:
+            for angle in [-3.0, 3.0]:
+                center = (w // 2, h // 2)
+                M = cv2.getRotationMatrix2D(center, angle, scale)
+                warped = cv2.warpAffine(source_img, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+                faces = self.app.get(warped)
+                if faces:
+                    best = sorted(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse=True)[0]
+                    embs.append(best.normed_embedding)
+                    
+        mean_emb = np.mean(embs, axis=0)
+        norm = np.linalg.norm(mean_emb)
+        if norm > 1e-6:
+            mean_emb /= norm
+        return mean_emb
+
     def high_quality_blend(
         self,
         target_img: np.ndarray,
         target_face,
         source_face,
         smooth_kps: Optional[np.ndarray] = None,
+        source_embedding: Optional[np.ndarray] = None,
         use_enhancer: bool = True,
         use_grain: bool = True,
         fidelity: float = 0.85,
@@ -306,14 +371,17 @@ class FaceSwapEngine:
         
         # 1. Aligned crop and Affine Matrix (128x128 standard InSwapper alignment)
         aimg, M = face_align.norm_crop2(target_img, kps_to_use, 128)
+        M_512 = M * 4.0
 
-        # 2. InSwapper Model Inference
+        # 2. InSwapper Model Inference using Multi-Angle Augmented Embedding
         blob = cv2.dnn.blobFromImage(
             aimg, 1.0 / self.swapper.input_std, (128, 128),
             (self.swapper.input_mean, self.swapper.input_mean, self.swapper.input_mean),
             swapRB=True
         )
-        latent = source_face.normed_embedding.reshape((1, -1))
+        
+        norm_emb = source_embedding if source_embedding is not None else source_face.normed_embedding
+        latent = norm_emb.reshape((1, -1))
         latent = np.dot(latent, self.swapper.emap)
         latent /= np.linalg.norm(latent)
         
@@ -332,7 +400,7 @@ class FaceSwapEngine:
         # 4. Realistic Skin & Lighting Harmonization (Preserving Source Face Complexion)
         bgr_fake_harmonized = color_transfer(bgr_fake_512, aimg_512, strength=color_strength)
 
-        # 5. HD 512x512 Face Enhancement (GFPGAN photorealism)
+        # 5. HD 512x512 Face Enhancement (GFPGAN neural detail restoration)
         if use_enhancer:
             bgr_fake_hd = self.enhance_face(bgr_fake_harmonized, fidelity=fidelity, sharpen_amount=sharpen_amount)
         else:
@@ -342,13 +410,10 @@ class FaceSwapEngine:
         if use_grain:
             bgr_fake_hd = match_film_grain(bgr_fake_hd, aimg_512)
 
-        # 7. High-Precision 512x512 Anatomical Alpha Mask
-        if self._cached_mask_512 is None:
-            self._cached_mask_512 = create_face_mask(512)
-        crop_mask_512 = self._cached_mask_512.copy()
+        # 7. Dense Landmark-Guided Anatomical 512x512 Mask (Preserves exact jawline & hairline)
+        crop_mask_512 = create_landmark_face_mask_512(target_face, M_512)
 
         # 8. Scale Affine Matrix directly to 512x512 coordinate space
-        M_512 = M * 4.0
         IM_512 = cv2.invertAffineTransform(M_512)
         h, w = target_img.shape[:2]
 
@@ -397,6 +462,9 @@ class FaceSwapEngine:
         if source_face is None:
             raise ValueError("No face detected in the source photo.")
             
+        # Extract 100% Identity-locked multi-sample embedding
+        source_emb = self.get_augmented_source_embedding(source_img, source_face)
+            
         target_faces = self.get_all_faces(target_img)
         if not target_faces:
             raise ValueError("No face detected in the target image.")
@@ -405,6 +473,7 @@ class FaceSwapEngine:
         for t_face in target_faces:
             result, _ = self.high_quality_blend(
                 result, t_face, source_face,
+                source_embedding=source_emb,
                 use_enhancer=use_enhancer,
                 use_grain=use_grain,
                 fidelity=fidelity,
@@ -435,7 +504,9 @@ class FaceSwapEngine:
         """
         Processes target video frame by frame with:
         - Specific person targeting (or all people)
-        - Temporal smoothing
+        - Multi-crop augmented source face identity lock
+        - Dense landmark-guided anatomical masks
+        - Temporal EMA smoothing & Lucas-Kanade optical tracking
         - GFPGAN HD enhancement
         - Audio preservation
         """
@@ -449,6 +520,9 @@ class FaceSwapEngine:
         source_face = self.get_face(source_img)
         if source_face is None:
             raise ValueError("No face detected in source photo.")
+
+        # Extract 100% Identity-locked multi-sample embedding once for the video
+        source_emb = self.get_augmented_source_embedding(source_img, source_face)
 
         cap = cv2.VideoCapture(target_video_path)
         if not cap.isOpened():
@@ -493,6 +567,7 @@ class FaceSwapEngine:
                         for t_face in target_faces:
                             swapped_frame, _ = self.high_quality_blend(
                                 swapped_frame, t_face, source_face,
+                                source_embedding=source_emb,
                                 use_enhancer=use_enhancer,
                                 use_grain=use_grain,
                                 fidelity=fidelity,
@@ -525,6 +600,7 @@ class FaceSwapEngine:
                             swapped_frame, _ = self.high_quality_blend(
                                 frame, best_face, source_face,
                                 smooth_kps=smooth_kps,
+                                source_embedding=source_emb,
                                 use_enhancer=use_enhancer,
                                 use_grain=use_grain,
                                 fidelity=fidelity,
