@@ -1,0 +1,25 @@
+# Web Server & API
+fastapi>=0.110.0
+uvicorn>=0.28.0
+python-multipart>=0.0.9
+pydantic>=2.6.0
+requests>=2.31.0
+
+# Computer Vision & Deep Learning
+numpy>=1.24.0
+opencv-python>=4.8.0
+scikit-image>=0.21.0
+scipy>=1.11.0
+Pillow>=10.0.0
+
+# ONNX Runtime (Use onnxruntime for CPU OR onnxruntime-gpu for NVIDIA CUDA GPU)
+onnxruntime>=1.17.0
+onnx>=1.15.0
+
+# Face Analysis & InSwapper Engine
+insightface>=0.7.3
+
+# Video & Audio Processing
+imageio>=2.33.0
+imageio-ffmpeg>=0.4.9
+tqdm>=4.66.0
