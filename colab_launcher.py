@@ -15,6 +15,19 @@ BACKEND_DIR = os.path.join(BASE_DIR, "backend")
 MODELS_DIR = os.path.join(BACKEND_DIR, "models")
 os.makedirs(MODELS_DIR, exist_ok=True)
 
+# Auto-link nvidia pip packages (cublas, cudnn) into LD_LIBRARY_PATH for CUDA ONNX execution
+try:
+    import site
+    for sp in site.getsitepackages():
+        nvidia_path = os.path.join(sp, 'nvidia')
+        if os.path.exists(nvidia_path):
+            for sub in ['cublas/lib', 'cudnn/lib', 'cuda_runtime/lib', 'cufft/lib']:
+                p = os.path.join(nvidia_path, sub)
+                if os.path.exists(p):
+                    os.environ['LD_LIBRARY_PATH'] = f"{p}:" + os.environ.get('LD_LIBRARY_PATH', '')
+except Exception:
+    pass
+
 def download_file_with_progress(urls, dest_path, min_size_bytes=50_000_000):
     if os.path.exists(dest_path) and os.path.getsize(dest_path) >= min_size_bytes:
         print(f"✅ Already exists on disk: {os.path.basename(dest_path)} ({os.path.getsize(dest_path) // 1024 // 1024} MB)")
@@ -101,7 +114,7 @@ if not os.path.exists(cloudflared_path) and not shutil.which("cloudflared"):
 # 3. Start Backend Uvicorn Server in Background
 print("🚀 Starting FastAPI Face Swap Server on Port 8000...")
 server_cmd = [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-server_proc = subprocess.Popen(server_cmd, cwd=BACKEND_DIR)
+server_proc = subprocess.Popen(server_cmd, cwd=BACKEND_DIR, env=os.environ)
 
 time.sleep(2)
 
