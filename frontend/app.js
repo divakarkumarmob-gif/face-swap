@@ -6,6 +6,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const state = {
         // Photo Mode State
         photo: {
+            activePersonIdx: 0,
+            persons: [
+                { id: 0, name: 'Person 1', files: [], template: null, activeIndex: 0 }
+            ],
             sourceFile: null,
             sourceFiles: [],
             sourceTemplate: null,
@@ -14,6 +18,10 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         // Video Mode State
         video: {
+            activePersonIdx: 0,
+            persons: [
+                { id: 0, name: 'Person 1', files: [], template: null, activeIndex: 0 }
+            ],
             sourceFile: null,
             sourceFiles: [],
             sourceTemplate: null,
@@ -23,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
             selectedPersonEmbedding: null,
             detectedPeople: []
         },
+
         // Live Camera & Recording State
         live: {
             sourceFile: null,
@@ -268,6 +277,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const floatingEta = document.getElementById('floatingEta');
     const btnFloatingExpand = document.getElementById('btnFloatingExpand');
     const btnFloatingCancel = document.getElementById('btnFloatingCancel');
+    const floatingPreviewThumb = document.getElementById('floatingPreviewThumb');
+    const floatingPreviewImg = document.getElementById('floatingPreviewImg');
+
+    const progressLivePreviewBox = document.getElementById('progressLivePreviewBox');
+    const progressLivePreviewImg = document.getElementById('progressLivePreviewImg');
+    const progressLivePreviewPlaceholder = document.getElementById('progressLivePreviewPlaceholder');
+    const progressLiveFps = document.getElementById('progressLiveFps');
+
 
     const resultsSection = document.getElementById('resultsSection');
     const resultsTitle = document.getElementById('resultsTitle');
@@ -427,6 +444,150 @@ document.addEventListener('DOMContentLoaded', () => {
     loadTemplates();
 
     // =========================================================================
+    // MULTI-PERSON SOURCE LOGIC (PHOTO & VIDEO MODES)
+    // =========================================================================
+    const photoSourcePersonsNav = document.getElementById('photoSourcePersonsNav');
+    const photoActivePersonLabel = document.getElementById('photoActivePersonLabel');
+    const photoPersonDescLabel = document.getElementById('photoPersonDescLabel');
+
+    const videoSourcePersonsNav = document.getElementById('videoSourcePersonsNav');
+    const videoActivePersonLabel = document.getElementById('videoActivePersonLabel');
+    const videoPersonDescLabel = document.getElementById('videoPersonDescLabel');
+
+    function renderPersonNav(mode) {
+        const navEl = mode === 'photo' ? photoSourcePersonsNav : videoSourcePersonsNav;
+        const activeLabel = mode === 'photo' ? photoActivePersonLabel : videoActivePersonLabel;
+        const descLabel = mode === 'photo' ? photoPersonDescLabel : videoPersonDescLabel;
+        if (!navEl) return;
+
+        const pState = state[mode];
+        navEl.innerHTML = '';
+
+        pState.persons.forEach((person, idx) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = `btn-person-tab ${idx === pState.activePersonIdx ? 'active' : ''}`;
+            btn.dataset.personIdx = idx;
+
+            const hasPhoto = (person.files && person.files.length > 0) || person.template;
+            btn.innerHTML = `
+                <i class="fa-solid fa-user"></i> Person ${person.id + 1}
+                <span class="tab-has-photo ${hasPhoto ? '' : 'hidden'}"></span>
+                ${pState.persons.length > 1 && idx > 0 ? `<span class="btn-person-delete" title="Remove Person ${person.id + 1}"><i class="fa-solid fa-xmark"></i></span>` : ''}
+            `;
+
+            btn.addEventListener('click', (e) => {
+                if (e.target.closest('.btn-person-delete')) {
+                    e.stopPropagation();
+                    removePerson(mode, idx);
+                    return;
+                }
+                switchPerson(mode, idx);
+            });
+
+            navEl.appendChild(btn);
+        });
+
+        // Add Person button (up to 4 people)
+        if (pState.persons.length < 4) {
+            const addBtn = document.createElement('button');
+            addBtn.type = 'button';
+            addBtn.className = 'btn-add-person';
+            addBtn.title = 'Add another person to swap multiple faces simultaneously';
+            addBtn.innerHTML = `<i class="fa-solid fa-plus"></i> Add Person`;
+            addBtn.addEventListener('click', () => {
+                addPerson(mode);
+            });
+            navEl.appendChild(addBtn);
+        }
+
+        const currPerson = pState.persons[pState.activePersonIdx] || pState.persons[0];
+        if (activeLabel) activeLabel.textContent = `(Person ${currPerson.id + 1})`;
+        if (descLabel) descLabel.textContent = `Person ${currPerson.id + 1}`;
+    }
+
+    function addPerson(mode) {
+        const pState = state[mode];
+        if (pState.persons.length >= 4) return;
+        const newId = pState.persons.length;
+        pState.persons.push({
+            id: newId,
+            name: `Person ${newId + 1}`,
+            files: [],
+            template: null,
+            activeIndex: 0
+        });
+        switchPerson(mode, newId);
+    }
+
+    function removePerson(mode, idx) {
+        const pState = state[mode];
+        if (pState.persons.length <= 1) return;
+        pState.persons.splice(idx, 1);
+        // Re-index
+        pState.persons.forEach((p, i) => { p.id = i; p.name = `Person ${i + 1}`; });
+        if (pState.activePersonIdx >= pState.persons.length) {
+            pState.activePersonIdx = pState.persons.length - 1;
+        }
+        syncActivePersonFromState(mode);
+        renderPersonNav(mode);
+    }
+
+    function switchPerson(mode, idx) {
+        const pState = state[mode];
+        pState.activePersonIdx = idx;
+        syncActivePersonFromState(mode);
+        renderPersonNav(mode);
+    }
+
+    function syncActivePersonFromState(mode) {
+        const pState = state[mode];
+        const person = pState.persons[pState.activePersonIdx] || pState.persons[0];
+        pState.sourceFiles = person.files || [];
+        pState.sourceFile = person.files && person.files.length > 0 ? person.files[0] : null;
+        pState.sourceTemplate = person.template || null;
+
+        if (mode === 'photo') {
+            activePhotoIndex = person.activeIndex || 0;
+            if (pState.sourceTemplate) {
+                const facePreset = { id: pState.sourceTemplate, url: `/samples/${pState.sourceTemplate}` };
+                photoSourcePreviewImg.src = facePreset.url;
+                photoSourceEmptyState.classList.add('hidden');
+                photoSourcePreviewState.classList.remove('hidden');
+                if (photoMultiGallery) photoMultiGallery.classList.add('hidden');
+            } else if (pState.sourceFiles && pState.sourceFiles.length > 0) {
+                renderPhotoMultiGallery();
+            } else {
+                clearPhotoSourceView();
+            }
+        } else {
+            activeVideoSourceIndex = person.activeIndex || 0;
+            if (pState.sourceTemplate) {
+                const facePreset = { id: pState.sourceTemplate, url: `/samples/${pState.sourceTemplate}` };
+                videoSourcePreviewImg.src = facePreset.url;
+                videoSourceEmptyState.classList.add('hidden');
+                videoSourcePreviewState.classList.remove('hidden');
+                if (videoMultiGallery) videoMultiGallery.classList.add('hidden');
+            } else if (pState.sourceFiles && pState.sourceFiles.length > 0) {
+                renderVideoMultiGallery();
+            } else {
+                clearVideoSourceView();
+            }
+        }
+    }
+
+    function syncActivePersonToState(mode) {
+        const pState = state[mode];
+        const person = pState.persons[pState.activePersonIdx];
+        if (person) {
+            person.files = [...pState.sourceFiles];
+            person.template = pState.sourceTemplate;
+            person.activeIndex = mode === 'photo' ? activePhotoIndex : activeVideoSourceIndex;
+        }
+        renderPersonNav(mode);
+    }
+
+    // =========================================================================
     // MULTI-PHOTO SOURCE LOGIC (PHOTO MODE)
     // =========================================================================
     let activePhotoIndex = 0;
@@ -444,6 +605,8 @@ document.addEventListener('DOMContentLoaded', () => {
         photoSourcePreviewState.classList.remove('hidden');
         if (photoMultiGallery) photoMultiGallery.classList.add('hidden');
         photoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-check-circle"></i> Preset Face Loaded`;
+
+        syncActivePersonToState('photo');
     }
 
     function addPhotoSourceFiles(newFilesList) {
@@ -465,6 +628,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         activePhotoIndex = state.photo.sourceFiles.length - 1;
         renderPhotoMultiGallery();
+        syncActivePersonToState('photo');
     }
 
     function removePhotoSourceFile(index) {
@@ -477,6 +641,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             state.photo.sourceFile = state.photo.sourceFiles[0];
             renderPhotoMultiGallery();
+            syncActivePersonToState('photo');
         }
     }
 
@@ -485,6 +650,11 @@ document.addEventListener('DOMContentLoaded', () => {
         state.photo.sourceFiles = [];
         state.photo.sourceTemplate = null;
         activePhotoIndex = 0;
+        clearPhotoSourceView();
+        syncActivePersonToState('photo');
+    }
+
+    function clearPhotoSourceView() {
         photoSourceFileInput.value = '';
         photoSourcePreviewImg.src = '';
         photoSourcePreviewState.classList.add('hidden');
@@ -496,7 +666,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderPhotoMultiGallery() {
         const files = state.photo.sourceFiles;
         if (files.length === 0) {
-            clearPhotoSource();
+            clearPhotoSourceView();
             return;
         }
 
@@ -514,10 +684,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Update badges
         if (photoCountBadge) photoCountBadge.textContent = files.length;
+        const currPerson = state.photo.persons[state.photo.activePersonIdx] || { id: 0 };
         if (files.length > 1) {
-            photoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-dna"></i> 3D Master Fusion (${files.length} Photos)`;
+            photoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-dna"></i> Person ${currPerson.id + 1} 3D Fusion (${files.length} Photos)`;
         } else {
-            photoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-check-circle"></i> Input Face Loaded`;
+            photoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-check-circle"></i> Person ${currPerson.id + 1} Face Loaded`;
         }
 
         // Render thumbnails grid
@@ -547,16 +718,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 card.addEventListener('click', () => {
                     activePhotoIndex = idx;
                     renderPhotoMultiGallery();
+                    syncActivePersonToState('photo');
                 });
 
                 photoMultiThumbnails.appendChild(card);
             });
 
             if (files.length < 4) {
+                const nextIdx = files.length;
+                const posePresets = [
+                    { label: "Front", img: "/samples/pose_front.jpg" },
+                    { label: "Left 30°", img: "/samples/pose_left.jpg" },
+                    { label: "Right 30°", img: "/samples/pose_right.jpg" },
+                    { label: "Tilt / Smile", img: "/samples/pose_front.jpg" }
+                ];
+                const info = posePresets[nextIdx] || { label: "Angle", img: "/samples/pose_left.jpg" };
+
                 const addTile = document.createElement('div');
                 addTile.className = 'gallery-thumb-add-tile';
-                addTile.title = 'Add another face photo (up to 4)';
-                addTile.innerHTML = `<i class="fa-solid fa-plus"></i><span>Angle</span>`;
+                addTile.title = `Add ${info.label} Photo (Angle ${nextIdx + 1}/4)`;
+                addTile.innerHTML = `
+                    <img class="add-tile-ghost-img" src="${info.img}" alt="${info.label}">
+                    <div class="add-tile-overlay">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>${info.label}</span>
+                    </div>
+                `;
                 addTile.addEventListener('click', (e) => {
                     e.stopPropagation();
                     photoSourceFileInput.click();
@@ -596,6 +783,7 @@ document.addEventListener('DOMContentLoaded', () => {
         e.stopPropagation();
         clearPhotoSource();
     });
+
 
     // =========================================================================
     // PHOTO TARGET HANDLERS
@@ -680,6 +868,8 @@ document.addEventListener('DOMContentLoaded', () => {
         videoSourcePreviewState.classList.remove('hidden');
         if (videoMultiGallery) videoMultiGallery.classList.add('hidden');
         videoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-check-circle"></i> Preset Face Loaded`;
+
+        syncActivePersonToState('video');
     }
 
     function addVideoSourceFiles(newFilesList) {
@@ -701,6 +891,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         activeVideoSourceIndex = state.video.sourceFiles.length - 1;
         renderVideoMultiGallery();
+        syncActivePersonToState('video');
     }
 
     function removeVideoSourceFile(index) {
@@ -713,6 +904,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             state.video.sourceFile = state.video.sourceFiles[0];
             renderVideoMultiGallery();
+            syncActivePersonToState('video');
         }
     }
 
@@ -721,6 +913,11 @@ document.addEventListener('DOMContentLoaded', () => {
         state.video.sourceFiles = [];
         state.video.sourceTemplate = null;
         activeVideoSourceIndex = 0;
+        clearVideoSourceView();
+        syncActivePersonToState('video');
+    }
+
+    function clearVideoSourceView() {
         videoSourceFileInput.value = '';
         videoSourcePreviewImg.src = '';
         videoSourcePreviewState.classList.add('hidden');
@@ -732,7 +929,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderVideoMultiGallery() {
         const files = state.video.sourceFiles;
         if (files.length === 0) {
-            clearVideoSource();
+            clearVideoSourceView();
             return;
         }
 
@@ -748,10 +945,11 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.readAsDataURL(activeFile);
 
         if (videoCountBadge) videoCountBadge.textContent = files.length;
+        const currPerson = state.video.persons[state.video.activePersonIdx] || { id: 0 };
         if (files.length > 1) {
-            videoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-dna"></i> 3D Master Fusion (${files.length} Photos)`;
+            videoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-dna"></i> Person ${currPerson.id + 1} 3D Fusion (${files.length} Photos)`;
         } else {
-            videoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-check-circle"></i> Input Face Loaded`;
+            videoSourceFusionBadge.innerHTML = `<i class="fa-solid fa-check-circle"></i> Person ${currPerson.id + 1} Face Loaded`;
         }
 
         if (videoMultiThumbnails) {
@@ -780,16 +978,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 card.addEventListener('click', () => {
                     activeVideoSourceIndex = idx;
                     renderVideoMultiGallery();
+                    syncActivePersonToState('video');
                 });
 
                 videoMultiThumbnails.appendChild(card);
             });
 
             if (files.length < 4) {
+                const nextIdx = files.length;
+                const posePresets = [
+                    { label: "Front", img: "/samples/pose_front.jpg" },
+                    { label: "Left 30°", img: "/samples/pose_left.jpg" },
+                    { label: "Right 30°", img: "/samples/pose_right.jpg" },
+                    { label: "Tilt / Smile", img: "/samples/pose_front.jpg" }
+                ];
+                const info = posePresets[nextIdx] || { label: "Angle", img: "/samples/pose_left.jpg" };
+
                 const addTile = document.createElement('div');
                 addTile.className = 'gallery-thumb-add-tile';
-                addTile.title = 'Add another face photo (up to 4)';
-                addTile.innerHTML = `<i class="fa-solid fa-plus"></i><span>Angle</span>`;
+                addTile.title = `Add ${info.label} Photo (Angle ${nextIdx + 1}/4)`;
+                addTile.innerHTML = `
+                    <img class="add-tile-ghost-img" src="${info.img}" alt="${info.label}">
+                    <div class="add-tile-overlay">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>${info.label}</span>
+                    </div>
+                `;
                 addTile.addEventListener('click', (e) => {
                     e.stopPropagation();
                     videoSourceFileInput.click();
@@ -1023,7 +1237,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const formData = new FormData();
-        if (state.photo.sourceFiles && state.photo.sourceFiles.length > 0) {
+        const multiPersonsWithFiles = state.photo.persons.filter(p => (p.files && p.files.length > 0) || p.template);
+
+        if (multiPersonsWithFiles.length > 1) {
+            state.photo.persons.forEach((p, pIdx) => {
+                if (p.files && p.files.length > 0) {
+                    p.files.forEach(f => {
+                        formData.append(`source_person_${pIdx}_files`, f);
+                    });
+                }
+            });
+        } else if (state.photo.sourceFiles && state.photo.sourceFiles.length > 0) {
             state.photo.sourceFiles.forEach(f => {
                 formData.append('source_files', f);
             });
@@ -1032,6 +1256,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (state.photo.sourceTemplate) {
             formData.append('source_template', state.photo.sourceTemplate);
         }
+
 
         if (state.photo.targetFile) {
             formData.append('target_file', state.photo.targetFile);
@@ -1045,7 +1270,7 @@ document.addEventListener('DOMContentLoaded', () => {
         formData.append('use_grain', useGrain);
 
         const countText = state.photo.sourceFiles.length > 1 ? ` (${state.photo.sourceFiles.length} Photos 3D Fusion)` : "";
-        showProgressModal(`Processing Photo Face Swap${countText}...`, "Analyzing landmarks, directional lighting & neural 512x512 restoration...");
+        showProgressModal(`Processing Photo Face Swap${countText}...`, "Analyzing landmarks, directional lighting & neural 512x512 restoration...", 'photo');
 
         try {
             const res = await fetch('/api/swap-photo', {
@@ -1084,7 +1309,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const formData = new FormData();
-        if (state.video.sourceFiles && state.video.sourceFiles.length > 0) {
+        const multiPersonsWithFiles = state.video.persons.filter(p => (p.files && p.files.length > 0) || p.template);
+
+        if (multiPersonsWithFiles.length > 1) {
+            state.video.persons.forEach((p, pIdx) => {
+                if (p.files && p.files.length > 0) {
+                    p.files.forEach(f => {
+                        formData.append(`source_person_${pIdx}_files`, f);
+                    });
+                }
+            });
+        } else if (state.video.sourceFiles && state.video.sourceFiles.length > 0) {
             state.video.sourceFiles.forEach(f => {
                 formData.append('source_files', f);
             });
@@ -1093,6 +1328,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (state.video.sourceTemplate) {
             formData.append('source_template', state.video.sourceTemplate);
         }
+
 
         if (state.video.targetFile) {
             formData.append('target_video', state.video.targetFile);
@@ -1119,7 +1355,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const countText = state.video.sourceFiles.length > 1 ? ` (${state.video.sourceFiles.length} Photos 3D Fusion)` : "";
-        showProgressModal(`Processing Video Face Swap${countText}...`, "Rendering video frames with optical tracking, directional lighting & audio preservation...");
+        showProgressModal(`Processing Video Face Swap${countText}...`, "Rendering video frames with optical tracking, directional lighting & audio preservation...", 'video');
 
         try {
             const res = await fetch('/api/swap-video', {
@@ -1147,7 +1383,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // =========================================================================
     let isModalMinimized = false;
 
-    function showProgressModal(title, msg) {
+    function showProgressModal(title, msg, jobType = 'photo') {
         isModalMinimized = false;
         modalTitle.textContent = title;
         modalStatusText.textContent = msg;
@@ -1165,7 +1401,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
         progressModal.classList.remove('hidden');
         if (floatingProgressWidget) floatingProgressWidget.classList.add('hidden');
+
+        // Hide live preview box for photos (user requested no preview for photos)
+        if (jobType === 'photo' || !jobType || jobType === 'regenerate') {
+            if (progressLivePreviewBox) progressLivePreviewBox.classList.add('hidden');
+            if (floatingPreviewThumb) floatingPreviewThumb.classList.add('hidden');
+        } else {
+            // Video Mode: show box (user can view/play paused chunks)
+            if (progressLivePreviewBox) progressLivePreviewBox.classList.remove('hidden');
+            if (progressLivePreviewImg) {
+                progressLivePreviewImg.src = '';
+                progressLivePreviewImg.classList.add('hidden');
+            }
+            if (progressLivePreviewPlaceholder) {
+                progressLivePreviewPlaceholder.classList.remove('hidden');
+            }
+            if (floatingPreviewThumb) {
+                floatingPreviewThumb.classList.add('hidden');
+            }
+        }
     }
+
 
     function minimizeProgressModal() {
         isModalMinimized = true;
@@ -1250,7 +1506,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 progressEta.innerHTML = etaHtml;
                 if (floatingEta) floatingEta.innerHTML = etaHtml;
 
+                // 3. Preview Logic (Photo = No preview; Video = Paused frame/chunk preview)
+                if (jobType === 'video' && job.preview_frame) {
+                    if (progressLivePreviewBox) progressLivePreviewBox.classList.remove('hidden');
+                    const frameDataUrl = `data:image/jpeg;base64,${job.preview_frame}`;
+                    if (progressLivePreviewImg) {
+                        progressLivePreviewImg.src = frameDataUrl;
+                        progressLivePreviewImg.classList.remove('hidden');
+                    }
+                    if (progressLivePreviewPlaceholder) {
+                        progressLivePreviewPlaceholder.classList.add('hidden');
+                    }
+                    if (floatingPreviewImg && floatingPreviewThumb) {
+                        floatingPreviewImg.src = frameDataUrl;
+                        floatingPreviewThumb.classList.remove('hidden');
+                    }
+                } else if (jobType === 'photo') {
+                    if (progressLivePreviewBox) progressLivePreviewBox.classList.add('hidden');
+                    if (floatingPreviewThumb) floatingPreviewThumb.classList.add('hidden');
+                }
+
                 if (job.status === 'completed') {
+
                     hideProgressModal();
                     displayResults(job, job.type || jobType);
                 } else if (job.status === 'failed') {
@@ -1260,7 +1537,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (e) {
                 console.error("Polling error:", e);
             }
-        }, 1000);
+        }, 250);
     }
 
     // =========================================================================
@@ -1285,10 +1562,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Preset selection
     const presetSliderValues = {
-        'auto_improve': { fidelity: 92, color: 24, sharpen: 22 },
-        'max_likeness': { fidelity: 96, color: 16, sharpen: 20 },
-        'ultra_hd': { fidelity: 93, color: 26, sharpen: 32 },
-        'ambient_blend': { fidelity: 82, color: 38, sharpen: 10 }
+        'auto_improve': { fidelity: 92, color: 25, sharpen: 20 },
+        'max_likeness': { fidelity: 100, color: 0, sharpen: 12 },
+        'ultra_hd': { fidelity: 88, color: 15, sharpen: 52 },
+        'ambient_blend': { fidelity: 78, color: 55, sharpen: 0 }
     };
 
     regenCards.forEach(card => {
@@ -1338,6 +1615,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const payload = {
             job_id: activeJobId,
             tuning_preset: selectedRegenPreset,
+            use_enhancer: true,
+            use_grain: false,
             fidelity: parseFloat(sliderFidelity.value) / 100.0,
             color_strength: parseFloat(sliderColor.value) / 100.0,
             sharpen_amount: parseFloat(sliderSharpen.value) / 100.0
@@ -1408,6 +1687,226 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // =========================================================================
+    // VIDEO SEGMENTING & AUTO-MERGE SUITE LOGIC
+    // =========================================================================
+    const videoSegmentSuite = document.getElementById('videoSegmentSuite');
+    const segmentBanner = document.getElementById('segmentBanner');
+    const segmentCurrentPill = document.getElementById('segmentCurrentPill');
+    const segmentTotalPill = document.getElementById('segmentTotalPill');
+    const btnProcessNextPart = document.getElementById('btnProcessNextPart');
+    const btnProcessNextPartText = document.getElementById('btnProcessNextPartText');
+    const partsCountBadge = document.getElementById('partsCountBadge');
+    const btnMergeParts = document.getElementById('btnMergeParts');
+    const btnMergePartsText = document.getElementById('btnMergePartsText');
+    const partsGrid = document.getElementById('partsGrid');
+
+    function renderPartsTray(latestJob) {
+        if (!videoSegmentSuite) return;
+        videoSegmentSuite.classList.remove('hidden');
+
+        // Update parts count badge
+        const totalParts = state.video.processedParts.length;
+        if (partsCountBadge) partsCountBadge.textContent = totalParts;
+
+        // Enable or disable Merge button
+        if (btnMergeParts) {
+            if (totalParts >= 2) {
+                btnMergeParts.removeAttribute('disabled');
+                btnMergeParts.classList.remove('disabled');
+                btnMergePartsText.textContent = `Merge ${totalParts} Parts into 1 Video`;
+            } else {
+                btnMergeParts.setAttribute('disabled', 'true');
+                btnMergeParts.classList.add('disabled');
+                btnMergePartsText.textContent = `Merge All Parts into 1 Video`;
+            }
+        }
+
+        // Check if next part is available
+        const hasMore = latestJob.has_more_parts;
+        if (hasMore && latestJob.next_start_offset !== null && latestJob.next_start_offset !== undefined) {
+            segmentBanner.classList.remove('hidden');
+            const currentPart = latestJob.part_number || 1;
+            const currentStart = Math.round(latestJob.start_offset || 0);
+            const currentEnd = Math.round(latestJob.end_offset || 30);
+            const totalSec = Math.round(latestJob.total_video_duration || 0);
+
+            if (segmentCurrentPill) segmentCurrentPill.innerHTML = `<i class="fa-solid fa-check"></i> Part ${currentPart} (${currentStart}s - ${currentEnd}s) Ready`;
+            if (segmentTotalPill) segmentTotalPill.textContent = `Total Video: ${totalSec}s`;
+
+            const nextPart = currentPart + 1;
+            const nextStart = Math.round(latestJob.next_start_offset);
+            const nextEnd = Math.round(Math.min(latestJob.total_video_duration, nextStart + 30));
+
+            if (btnProcessNextPartText) {
+                btnProcessNextPartText.textContent = `Process Part ${nextPart} (${nextStart}s - ${nextEnd}s)`;
+            }
+
+            state.video.nextChunk = {
+                start_offset: latestJob.next_start_offset,
+                part_number: nextPart,
+                next_end: nextEnd
+            };
+        } else {
+            segmentBanner.classList.add('hidden');
+            state.video.nextChunk = null;
+        }
+
+        // Render cards for all processed parts
+        if (partsGrid) {
+            partsGrid.innerHTML = '';
+            state.video.processedParts.forEach((part, idx) => {
+                const card = document.createElement('div');
+                card.className = 'part-item-card';
+                const sTime = Math.round(part.start_offset);
+                const eTime = Math.round(part.end_offset);
+                card.innerHTML = `
+                    <div class="part-item-top">
+                        <span class="part-item-badge">Part ${part.part_number}</span>
+                        <span class="part-item-time">${sTime}s - ${eTime}s (${eTime - sTime}s)</span>
+                    </div>
+                    <video class="part-item-video" src="${part.url}" preload="metadata" muted playsinline></video>
+                    <div class="part-item-actions">
+                        <button type="button" class="btn btn-sm btn-outline btn-play-part"><i class="fa-solid fa-play"></i> Play</button>
+                        <a href="${part.download_url || part.url}" download="swapped_part_${part.part_number}.mp4" class="btn btn-sm btn-primary"><i class="fa-solid fa-download"></i> Save</a>
+                    </div>
+                `;
+
+                card.querySelector('.btn-play-part').addEventListener('click', () => {
+                    swappedVideoPlayer.src = `${part.url}?t=${Date.now()}`;
+                    swappedVideoPlayer.load();
+                    swappedVideoPlayer.play().catch(() => {});
+                    resultsTitle.textContent = `Previewing Part ${part.part_number} (${sTime}s - ${eTime}s)`;
+                    downloadBtnText.textContent = `Download Part ${part.part_number}`;
+                    btnDownloadMedia.href = part.download_url || part.url;
+                    btnDownloadMedia.setAttribute('download', `swapped_part_${part.part_number}.mp4`);
+                    swappedVideoPlayer.scrollIntoView({ behavior: 'smooth' });
+                });
+
+                partsGrid.appendChild(card);
+            });
+        }
+    }
+
+    // Process Next Part button click
+    if (btnProcessNextPart) {
+        btnProcessNextPart.addEventListener('click', async () => {
+            if (!state.video.nextChunk) return;
+
+            const hasSource = (state.video.sourceFiles && state.video.sourceFiles.length > 0) || state.video.sourceFile || state.video.sourceTemplate;
+            if (!hasSource || (!state.video.targetFile && !state.video.targetTemplate)) {
+                alert('Source photo or target video is missing.');
+                return;
+            }
+
+            const formData = new FormData();
+            if (state.video.sourceFiles && state.video.sourceFiles.length > 0) {
+                state.video.sourceFiles.forEach(f => formData.append('source_files', f));
+            } else if (state.video.sourceFile) {
+                formData.append('source_file', state.video.sourceFile);
+            } else if (state.video.sourceTemplate) {
+                formData.append('source_template', state.video.sourceTemplate);
+            }
+
+            if (state.video.targetFile) {
+                formData.append('target_video', state.video.targetFile);
+            } else if (state.video.targetTemplate) {
+                formData.append('target_template', state.video.targetTemplate);
+            }
+
+            formData.append('max_duration', 30.0);
+            formData.append('start_offset', state.video.nextChunk.start_offset);
+            formData.append('part_number', state.video.nextChunk.part_number);
+
+            const useEnhancer = toggleVideoEnhancer?.checked ?? true;
+            const useSmoothing = toggleVideoSmoothing?.checked ?? true;
+            const useGrain = toggleVideoGrain?.checked ?? true;
+
+            formData.append('use_enhancer', useEnhancer);
+            formData.append('use_smoothing', useSmoothing);
+            formData.append('use_grain', useGrain);
+
+            if (state.video.selectedPersonId !== null) {
+                formData.append('target_person_id', state.video.selectedPersonId);
+                if (state.video.selectedPersonEmbedding) {
+                    formData.append('target_person_embedding', JSON.stringify(state.video.selectedPersonEmbedding));
+                }
+            }
+
+            const nextP = state.video.nextChunk.part_number;
+            showProgressModal(`Processing Video Part ${nextP}...`, `Rendering frames for Part ${nextP} (${Math.round(state.video.nextChunk.start_offset)}s - ${Math.round(state.video.nextChunk.next_end)}s)...`);
+
+            try {
+                const res = await fetch('/api/swap-video', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || `Failed to start Part ${nextP}`);
+                }
+
+                const data = await res.json();
+                state.currentJobId = data.job_id;
+                startPolling(data.job_id, 'video');
+
+            } catch (err) {
+                hideProgressModal();
+                alert(`Error starting Part ${nextP}: ${err.message}`);
+            }
+        });
+    }
+
+    // Merge All Parts button click
+    if (btnMergeParts) {
+        btnMergeParts.addEventListener('click', async () => {
+            if (state.video.processedParts.length < 2) return;
+
+            showProgressModal("Merging Video Parts...", `Concatenating ${state.video.processedParts.length} video parts into 1 continuous seamless video...`);
+
+            try {
+                const jobIds = state.video.processedParts.map(p => p.id);
+                const res = await fetch('/api/merge-video-parts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ job_ids: jobIds })
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || "Failed to merge video parts");
+                }
+
+                const data = await res.json();
+                hideProgressModal();
+
+                // Display merged video in player
+                const cacheBustedMergedUrl = `${data.merged_url}?t=${Date.now()}`;
+                swappedVideoPlayer.src = cacheBustedMergedUrl;
+                swappedVideoPlayer.load();
+                swappedVideoPlayer.play().catch(() => {});
+
+                resultsTitle.textContent = `🎬 Complete Merged Video (${data.parts_merged} Parts Joined)`;
+                resultsSubtitle.textContent = `All 30-second segments have been seamlessly merged into 1 single high-quality video!`;
+                downloadBtnText.textContent = `Download Full Merged Video`;
+                btnDownloadMedia.href = data.download_url || data.merged_url;
+                btnDownloadMedia.setAttribute('download', `swapped_complete_merged_${data.merge_id}.mp4`);
+
+                resultVersionBadge.innerHTML = `<i class="fa-solid fa-film"></i> Full Merged (${data.parts_merged} Parts)`;
+                resultVersionBadge.style.background = "linear-gradient(90deg, rgba(16,185,129,0.3), rgba(59,130,246,0.3))";
+                resultVersionBadge.style.borderColor = "rgba(16,185,129,0.5)";
+                resultVersionBadge.style.color = "#6ee7b7";
+
+                swappedVideoPlayer.scrollIntoView({ behavior: 'smooth' });
+
+            } catch (err) {
+                hideProgressModal();
+                alert(`Merge Failed: ${err.message}`);
+            }
+        });
+    }
+
+    // =========================================================================
     // DISPLAY RESULTS
     // =========================================================================
     function displayResults(job, jobType) {
@@ -1431,7 +1930,8 @@ document.addEventListener('DOMContentLoaded', () => {
             resultVersionBadge.style.borderColor = "rgba(236,72,153,0.5)";
             resultVersionBadge.style.color = "#f472b6";
         } else {
-            resultVersionBadge.innerHTML = `<i class="fa-solid fa-code-branch"></i> Version 1 (Initial)`;
+            const partNum = job.part_number || 1;
+            resultVersionBadge.innerHTML = jobType === 'video' ? `<i class="fa-solid fa-film"></i> Part ${partNum}` : `<i class="fa-solid fa-code-branch"></i> Version 1 (Initial)`;
             resultVersionBadge.style.background = "rgba(99, 102, 241, 0.2)";
             resultVersionBadge.style.borderColor = "rgba(99, 102, 241, 0.35)";
             resultVersionBadge.style.color = "#a5b4fc";
@@ -1446,6 +1946,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (jobType === 'photo') {
+            if (videoSegmentSuite) videoSegmentSuite.classList.add('hidden');
             resultsTitle.textContent = iteration > 1 ? `Your Transformed Photo (Version ${iteration})` : "Your Transformed Photo";
             resultsSubtitle.textContent = "Preview side-by-side or download your HD face-swapped photo below.";
             downloadBtnText.textContent = `Download HD Photo (v${iteration})`;
@@ -1468,11 +1969,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } else {
             // Video result
-            resultsTitle.textContent = iteration > 1 ? `Your Transformed Video (Version ${iteration})` : "Your Transformed Video";
+            const partNum = job.part_number || 1;
+            const startS = Math.round(job.start_offset || 0);
+            const endS = Math.round(job.end_offset || 30);
+            resultsTitle.textContent = iteration > 1 ? `Your Transformed Video (Version ${iteration})` : `Your Transformed Video (Part ${partNum}: ${startS}s - ${endS}s)`;
             resultsSubtitle.textContent = "Preview side-by-side or download your HD face-swapped video below.";
-            downloadBtnText.textContent = `Download HD Video (v${iteration})`;
+            downloadBtnText.textContent = `Download Part ${partNum} Video`;
             btnDownloadMedia.href = job.download_url || job.output_url;
-            btnDownloadMedia.setAttribute('download', `swapped_video_v${iteration}_${job.id}.mp4`);
+            btnDownloadMedia.setAttribute('download', `swapped_video_part${partNum}_${job.id}.mp4`);
 
             // Swapped Video (with cache buster)
             swappedVideoPlayer.src = cacheBustedUrl;
@@ -1489,6 +1993,21 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             originalVideoPlayer.classList.remove('hidden');
             originalPhotoResult.classList.add('hidden');
+
+            // Track and render parts tray
+            if (!state.video.processedParts) state.video.processedParts = [];
+            const exists = state.video.processedParts.find(p => p.id === job.id);
+            if (!exists) {
+                state.video.processedParts.push({
+                    id: job.id,
+                    part_number: partNum,
+                    start_offset: job.start_offset || 0,
+                    end_offset: job.end_offset || Math.min(job.total_video_duration || 30, (job.start_offset || 0) + 30),
+                    url: job.output_url,
+                    download_url: job.download_url
+                });
+            }
+            renderPartsTray(job);
         }
 
         resultsSection.classList.remove('hidden');
@@ -1497,9 +2016,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     btnNewSwap.addEventListener('click', () => {
         resultsSection.classList.add('hidden');
+        if (videoSegmentSuite) videoSegmentSuite.classList.add('hidden');
+        state.video.processedParts = [];
         versionHistory = [];
         window.scrollTo({ top: 0, behavior: 'smooth' });
     });
+
 
     // =========================================================================
     // LIVE CAMERA & VIDEO RECORDING MODULE
@@ -1685,14 +2207,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (resVal === '720p') { width = 1280; height = 720; }
             else if (resVal === '360p') { width = 480; height = 360; }
 
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    width: { ideal: width },
-                    height: { ideal: height },
-                    facingMode: 'user'
-                },
-                audio: true
-            });
+            let stream = null;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: width }, height: { ideal: height }, facingMode: 'user' },
+                    audio: true
+                });
+            } catch (micErr) {
+                console.warn('Microphone not available, falling back to video-only stream:', micErr);
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: width }, height: { ideal: height }, facingMode: 'user' },
+                    audio: false
+                });
+            }
 
             state.live.stream = stream;
             state.live.isCameraOn = true;
@@ -1724,8 +2251,8 @@ document.addEventListener('DOMContentLoaded', () => {
             runLiveStreamLoop();
 
         } catch (err) {
-            console.error('Failed to access camera/mic:', err);
-            alert('Could not access camera/microphone. Please ensure permissions are granted in browser settings.');
+            console.error('Failed to access camera:', err);
+            alert('Could not access camera. Please check browser permissions and allow camera access.');
         }
     }
 
@@ -1764,6 +2291,8 @@ document.addEventListener('DOMContentLoaded', () => {
         liveLatencyVal.textContent = '0';
     }
 
+    let latestSwappedImage = null;
+
     function connectLiveWebSocket() {
         if (state.live.ws && state.live.ws.readyState === WebSocket.OPEN) return;
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1773,6 +2302,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         state.live.ws.onopen = () => {
             console.log('[LiveSwap WS] Connected successfully');
+            state.live.isProcessingFrame = false;
         };
 
         state.live.ws.onmessage = (event) => {
@@ -1781,8 +2311,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.frame) {
                     const img = new Image();
                     img.onload = () => {
-                        const ctx = liveSwapCanvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, liveSwapCanvas.width, liveSwapCanvas.height);
+                        latestSwappedImage = img;
                         state.live.isProcessingFrame = false;
 
                         // Latency & Face Detected Status
@@ -1790,7 +2319,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             liveLatencyVal.textContent = data.latency_ms;
                         }
                         if (liveFaceStatusText) {
-                            liveFaceStatusText.textContent = data.detected ? 'Face Locked' : 'No Face in View';
+                            liveFaceStatusText.textContent = data.detected ? 'Face Locked' : 'Searching Face...';
                         }
                         if (liveFaceStatusBadge) {
                             if (data.detected) {
@@ -1820,6 +2349,8 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    let lastFrameSentTime = 0;
+
     function runLiveStreamLoop() {
         if (!state.live.isCameraOn) return;
 
@@ -1835,7 +2366,22 @@ document.addEventListener('DOMContentLoaded', () => {
             state.live.lastFpsTime = now;
         }
 
-        // Frame Processing: Send frame to WebSocket if swapping is enabled and ready
+        // 1. Draw frame to canvas: if swapped image exists and swapping is enabled, draw it; otherwise draw raw webcam feed
+        if (state.live.isSwapping && state.live.sourceId && latestSwappedImage) {
+            ctx.drawImage(latestSwappedImage, 0, 0, liveSwapCanvas.width, liveSwapCanvas.height);
+        } else if (liveWebcamVideo.readyState >= 2) {
+            ctx.drawImage(liveWebcamVideo, 0, 0, liveSwapCanvas.width, liveSwapCanvas.height);
+            if (liveFaceStatusText && !state.live.sourceId) {
+                liveFaceStatusText.textContent = 'Select a Face Source';
+            }
+        }
+
+        // 2. Safeguard timeout: reset processing flag if frame takes > 500ms
+        if (state.live.isProcessingFrame && (now - lastFrameSentTime > 500)) {
+            state.live.isProcessingFrame = false;
+        }
+
+        // 3. Send frame to WebSocket if swapping is enabled and ready
         if (
             state.live.isSwapping &&
             state.live.sourceId &&
@@ -1843,9 +2389,9 @@ document.addEventListener('DOMContentLoaded', () => {
             state.live.ws.readyState === WebSocket.OPEN &&
             !state.live.isProcessingFrame &&
             liveWebcamVideo.readyState >= 2 &&
-            now - lastLiveSwapSendTime >= 33 // ~30 FPS throttle
+            now - lastFrameSentTime >= 33 // ~30 FPS
         ) {
-            lastLiveSwapSendTime = now;
+            lastFrameSentTime = now;
             state.live.isProcessingFrame = true;
 
             // Draw to offscreen canvas
@@ -1860,15 +2406,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 use_enhancer: toggleLiveEnhancer ? toggleLiveEnhancer.checked : false,
                 color_strength: 0.28
             }));
-
-        } else if (!state.live.isSwapping || !state.live.sourceId) {
-            // Draw direct un-swapped video onto canvas
-            if (liveWebcamVideo.readyState >= 2) {
-                ctx.drawImage(liveWebcamVideo, 0, 0, liveSwapCanvas.width, liveSwapCanvas.height);
-            }
-            if (liveFaceStatusText) {
-                liveFaceStatusText.textContent = state.live.sourceId ? 'Swap Paused' : 'Pick a Face Source';
-            }
         }
 
         state.live.activeAnimationId = requestAnimationFrame(runLiveStreamLoop);
@@ -2704,5 +3241,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (btnEndCall) btnEndCall.addEventListener('click', endCall);
+
+    // Initialize Multi-Person Source Switcher Bars on Startup
+    renderPersonNav('photo');
+    renderPersonNav('video');
 });
+
 

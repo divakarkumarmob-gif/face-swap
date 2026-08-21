@@ -14,6 +14,14 @@ MODEL_URLS = {
         "https://huggingface.co/hacksider/deep-live-cam/resolve/main/GFPGANv1.4.onnx",
         "https://huggingface.co/Neus/GFPGANv1.4/resolve/main/GFPGANv1.4.onnx",
         "https://huggingface.co/facefusion/models-3.0.0/resolve/main/models-3.0.0/gfpgan_1.4.onnx"
+    ],
+    "codeformer.onnx": [
+        "https://huggingface.co/facefusion/models-3.0.0/resolve/main/models-3.0.0/codeformer.onnx",
+        "https://huggingface.co/bluefoxcreation/Codeformer-ONNX/resolve/main/codeformer.onnx"
+    ],
+    "face_parser.onnx": [
+        "https://huggingface.co/facefusion/models-3.0.0/resolve/main/models-3.0.0/face_parser.onnx",
+        "https://huggingface.co/maze/faceX/resolve/main/face_parser.onnx"
     ]
 }
 

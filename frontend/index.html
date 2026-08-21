@@ -82,11 +82,23 @@
             <div class="studio-grid">
                 <!-- Left Side: Source Face Photo (Input Photo) -->
                 <div class="card source-card">
-                    <div class="card-header">
-                        <div class="card-badge"><i class="fa-solid fa-user-circle"></i> Left Side • Step 1</div>
-                        <h2>Input Face Photo</h2>
-                        <p>Upload the portrait face you want to swap from</p>
+                    <div class="card-header source-card-header">
+                        <div class="source-header-top">
+                            <div class="card-badge"><i class="fa-solid fa-user-circle"></i> Left Side • Step 1</div>
+                            <div class="source-persons-nav" id="photoSourcePersonsNav">
+                                <button type="button" class="btn-person-tab active" data-person-idx="0">
+                                    <i class="fa-solid fa-user"></i> Person 1
+                                    <span class="tab-has-photo hidden"></span>
+                                </button>
+                                <button type="button" class="btn-add-person" id="btnAddPhotoPerson" title="Add another person to swap multiple people">
+                                    <i class="fa-solid fa-plus"></i> Add Person
+                                </button>
+                            </div>
+                        </div>
+                        <h2>Input Face Photo <span class="active-person-label" id="photoActivePersonLabel">(Person 1)</span></h2>
+                        <p>Upload the portrait face you want to swap from for <span id="photoPersonDescLabel">Person 1</span></p>
                     </div>
+
 
                     <div class="upload-dropzone" id="photoSourceDropzone">
                         <input type="file" id="photoSourceFileInput" accept="image/png, image/jpeg, image/webp" multiple hidden>
@@ -174,10 +186,16 @@
             <div class="action-panel">
                 <div class="action-settings">
                     <div class="realism-toggles">
-                        <label class="toggle-control" title="Restores high definition facial details, eye sharpness, and skin pores">
+                        <label class="toggle-control" title="Restores ultra-high definition iris clarity and natural skin pores using CodeFormer HD / GFPGAN 1.4">
                             <input type="checkbox" id="togglePhotoEnhancer" checked>
                             <span class="toggle-switch"></span>
-                            <span class="toggle-label"><i class="fa-solid fa-wand-magic"></i> HD Enhancer (GFPGAN)</span>
+                            <span class="toggle-label"><i class="fa-solid fa-wand-magic-sparkles"></i> HD Enhancer (CodeFormer/GFPGAN)</span>
+                        </label>
+
+                        <label class="toggle-control" title="BiSeNet Neural Segmentation isolates swap skin and protects eyeglasses frames and hair strands from distortion">
+                            <input type="checkbox" id="togglePhotoOcclusion" checked>
+                            <span class="toggle-switch"></span>
+                            <span class="toggle-label"><i class="fa-solid fa-glasses"></i> Glasses & Hair Shield</span>
                         </label>
 
                         <label class="toggle-control" title="Matches natural camera sensor grain to remove plastic look">
@@ -204,11 +222,23 @@
             <div class="studio-grid">
                 <!-- Left Side: Source Face Photo (Input Photo) -->
                 <div class="card source-card">
-                    <div class="card-header">
-                        <div class="card-badge"><i class="fa-solid fa-user"></i> Left Side • Step 1</div>
-                        <h2>Input Face Photo</h2>
-                        <p>Upload a clear front-facing portrait photo</p>
+                    <div class="card-header source-card-header">
+                        <div class="source-header-top">
+                            <div class="card-badge"><i class="fa-solid fa-user"></i> Left Side • Step 1</div>
+                            <div class="source-persons-nav" id="videoSourcePersonsNav">
+                                <button type="button" class="btn-person-tab active" data-person-idx="0">
+                                    <i class="fa-solid fa-user"></i> Person 1
+                                    <span class="tab-has-photo hidden"></span>
+                                </button>
+                                <button type="button" class="btn-add-person" id="btnAddVideoPerson" title="Add another person to swap multiple people">
+                                    <i class="fa-solid fa-plus"></i> Add Person
+                                </button>
+                            </div>
+                        </div>
+                        <h2>Input Face Photo <span class="active-person-label" id="videoActivePersonLabel">(Person 1)</span></h2>
+                        <p>Upload portrait face photo(s) for <span id="videoPersonDescLabel">Person 1</span></p>
                     </div>
+
 
                     <div class="upload-dropzone" id="videoSourceDropzone">
                         <input type="file" id="videoSourceFileInput" accept="image/png, image/jpeg, image/webp" multiple hidden>
@@ -317,16 +347,16 @@
                     </div>
 
                     <div class="realism-toggles">
-                        <label class="toggle-control" title="Restores high definition facial details, eye sharpness, and skin pores">
-                            <input type="checkbox" id="toggleVideoEnhancer" checked>
+                        <label class="toggle-control" title="Restores heavy frame-by-frame CodeFormer HD neural pass">
+                            <input type="checkbox" id="toggleVideoEnhancer">
                             <span class="toggle-switch"></span>
-                            <span class="toggle-label"><i class="fa-solid fa-wand-magic"></i> HD Enhancer (GFPGAN)</span>
+                            <span class="toggle-label"><i class="fa-solid fa-wand-magic-sparkles"></i> HD Enhancer (CodeFormer)</span>
                         </label>
 
-                        <label class="toggle-control" title="Smoothes motion across consecutive frames to eliminate jitter/flicker">
+                        <label class="toggle-control" title="Smoothes motion across consecutive frames using Dense Optical Flow to eliminate 100% jitter/flicker">
                             <input type="checkbox" id="toggleVideoSmoothing" checked>
                             <span class="toggle-switch"></span>
-                            <span class="toggle-label"><i class="fa-solid fa-video"></i> Anti-Jitter Smooth</span>
+                            <span class="toggle-label"><i class="fa-solid fa-video"></i> Optical Flow Anti-Jitter</span>
                         </label>
 
                         <label class="toggle-control" title="Matches natural camera sensor grain to remove plastic look">
@@ -727,9 +757,49 @@
             </div>
 
             <!-- ============================================== -->
+            <!-- 30S VIDEO SEGMENTING & AUTO-MERGE SUITE (UP TO 2 MINS) -->
+            <!-- ============================================== -->
+            <div class="video-segment-suite hidden" id="videoSegmentSuite">
+                <div class="segment-banner" id="segmentBanner">
+                    <div class="segment-banner-icon">
+                        <i class="fa-solid fa-scissors"></i>
+                    </div>
+                    <div class="segment-banner-info">
+                        <div class="segment-badge-row">
+                            <span class="segment-pill" id="segmentCurrentPill"><i class="fa-solid fa-check"></i> Part 1 (0s - 30s) Ready</span>
+                            <span class="segment-total-pill" id="segmentTotalPill">Total Length: 1m 15s</span>
+                        </div>
+                        <h3 id="segmentBannerTitle">Next Part Available to Process!</h3>
+                        <p id="segmentBannerDesc">Your video has remaining content. Process the next 30-second chunk (Part 2: 30s - 60s) or merge all finished parts below.</p>
+                    </div>
+                    <div class="segment-banner-actions">
+                        <button type="button" class="btn btn-primary btn-next-part" id="btnProcessNextPart">
+                            <span class="btn-glow"></span>
+                            <i class="fa-solid fa-play"></i> <span id="btnProcessNextPartText">Process Next Part 2 (30s - 60s)</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Processed Parts List & 1-Click Merge Tray -->
+                <div class="parts-tray-card" id="partsTrayCard">
+                    <div class="parts-tray-header">
+                        <h4><i class="fa-solid fa-layer-group"></i> Rendered Video Parts (<span id="partsCountBadge">1</span>)</h4>
+                        <button type="button" class="btn btn-merge-parts disabled" id="btnMergeParts" disabled>
+                            <span class="merge-glow"></span>
+                            <i class="fa-solid fa-film"></i> <span id="btnMergePartsText">Merge All Parts into 1 Video</span>
+                        </button>
+                    </div>
+                    <div class="parts-grid" id="partsGrid">
+                        <!-- Populated dynamically by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================== -->
             <!-- SMART REGENERATE & QUALITY IMPROVEMENT SUITE -->
             <!-- ============================================== -->
             <div class="regeneration-suite" id="regenerationSuite">
+
                 <div class="regen-header">
                     <div class="regen-icon-title">
                         <div class="regen-pulse-icon">
@@ -759,9 +829,9 @@
                         <div class="regen-card-icon"><i class="fa-solid fa-fingerprint"></i></div>
                         <div class="regen-card-info">
                             <h4>100% Input Likeness</h4>
-                            <p>Forces exact source face shape, eye geometry & true skin complexion</p>
+                            <p>Pure 100% exact copy of input face without any AI alteration or modification</p>
                         </div>
-                        <span class="regen-pill">Exact Face</span>
+                        <span class="regen-pill">Pure Copy</span>
                     </div>
 
                     <div class="regen-card" data-preset="ultra_hd">
@@ -867,6 +937,21 @@
                 <span id="progressEta"><i class="fa-solid fa-hourglass-half"></i> ETA: --</span>
             </div>
 
+            <!-- Live Rendering Frame Preview Box -->
+            <div class="progress-live-preview-box" id="progressLivePreviewBox">
+                <div class="live-preview-header">
+                    <span class="live-preview-tag"><i class="fa-solid fa-circle-play live-pulse-dot"></i> Live Render Preview</span>
+                    <span class="live-preview-fps" id="progressLiveFps"><i class="fa-solid fa-bolt"></i> Real-Time</span>
+                </div>
+                <div class="live-preview-media">
+                    <img id="progressLivePreviewImg" src="" alt="Live Video Frame Preview" class="live-preview-img hidden">
+                    <div class="live-preview-placeholder" id="progressLivePreviewPlaceholder">
+                        <i class="fa-solid fa-film"></i>
+                        <span>Live video preview frames will stream here in real time...</span>
+                    </div>
+                </div>
+            </div>
+
             <div class="modal-footer-hint">
                 <span class="btn-inline-min" id="btnInlineMinimize"><i class="fa-solid fa-window-minimize"></i> Minimize to Background</span>
                 <p class="modal-hint"><i class="fa-solid fa-circle-info"></i> InsightFace + GFPGAN HD Neural Processing.</p>
@@ -878,7 +963,10 @@
     <div class="floating-progress-widget hidden" id="floatingProgressWidget">
         <div class="floating-glow"></div>
         <div class="floating-inner">
-            <div class="floating-spinner-wrap">
+            <div class="floating-preview-thumb hidden" id="floatingPreviewThumb">
+                <img id="floatingPreviewImg" src="" alt="Mini Preview">
+            </div>
+            <div class="floating-spinner-wrap" id="floatingSpinnerWrap">
                 <div class="mini-spinner"></div>
                 <i class="fa-solid fa-bolt floating-bolt"></i>
             </div>
@@ -903,6 +991,7 @@
                     <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
+
         </div>
     </div>
 

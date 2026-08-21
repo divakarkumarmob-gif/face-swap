@@ -12,6 +12,7 @@ from fastapi import FastAPI, File, UploadFile, Form, BackgroundTasks, HTTPExcept
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
+from contextlib import asynccontextmanager
 from pydantic import BaseModel
 
 # Ensure backend directory is in sys.path
@@ -39,7 +40,19 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(SAMPLES_DIR, exist_ok=True)
 
-app = FastAPI(title="AI Video Face Swap API", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Pre-loading AI models (InSwapper + GFPGAN HD) on server startup...")
+    try:
+        engine = FaceSwapEngine.get_instance()
+        engine.initialize()
+        print(f"AI Engine Preloaded! InSwapper: {engine.swapper is not None}, GFPGAN 1.4 HD: {engine.enhancer_session is not None}")
+    except Exception as e:
+        print(f"Preload warning: {e}")
+    yield
+
+app = FastAPI(title="AI Video Face Swap API", version="1.0.0", lifespan=lifespan)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,8 +87,8 @@ def run_photo_swap_job(
     target_path: str,
     use_enhancer: bool,
     use_grain: bool,
-    fidelity: float = 0.85,
-    color_strength: float = 0.28,
+    fidelity: float = 0.92,
+    color_strength: float = 0.15,
     sharpen_amount: float = 0.15
 ):
     engine = FaceSwapEngine.get_instance()
@@ -102,7 +115,8 @@ def run_photo_swap_job(
             use_grain=use_grain,
             fidelity=fidelity,
             color_strength=color_strength,
-            sharpen_amount=sharpen_amount
+            sharpen_amount=sharpen_amount,
+            multi_person_sources=jobs[job_id].get("multi_person_sources")
         )
         
         jobs[job_id]["status"] = JobStatus.COMPLETED
@@ -126,20 +140,22 @@ def run_video_swap_job(
     source_path: Any,
     target_path: str,
     max_duration: float,
-    target_person_id: Optional[int],
-    target_person_embedding: Optional[List[float]],
-    use_enhancer: bool,
-    use_smoothing: bool,
-    use_grain: bool,
-    fidelity: float = 0.85,
-    color_strength: float = 0.28,
+    start_offset: float = 0.0,
+    part_number: int = 1,
+    target_person_id: Optional[int] = None,
+    target_person_embedding: Optional[List[float]] = None,
+    use_enhancer: bool = True,
+    use_smoothing: bool = True,
+    use_grain: bool = True,
+    fidelity: float = 0.92,
+    color_strength: float = 0.15,
     sharpen_amount: float = 0.15
 ):
     engine = FaceSwapEngine.get_instance()
     
     try:
         jobs[job_id]["status"] = JobStatus.INITIALIZING
-        jobs[job_id]["message"] = "Initializing AI Models..."
+        jobs[job_id]["message"] = f"Initializing AI Models (Part {part_number})..."
         
         def init_callback(percent, msg):
             jobs[job_id]["message"] = msg
@@ -148,24 +164,37 @@ def run_video_swap_job(
         engine.initialize(progress_callback=init_callback)
         
         jobs[job_id]["status"] = JobStatus.PROCESSING
-        jobs[job_id]["message"] = "Processing video frames..."
+        jobs[job_id]["message"] = f"Processing Part {part_number} frames..."
         
         output_filename = f"swapped_{job_id}.mp4"
         output_path = os.path.join(OUTPUT_DIR, output_filename)
         
-        def progress_callback(curr_frame, total_frames, percent, eta_str):
+        def progress_callback(curr_frame, total_frames, percent, eta_str, preview_img=None):
             overall_pct = 10 + int(percent * 0.9)
             jobs[job_id]["progress"] = min(99, overall_pct)
             jobs[job_id]["current_frame"] = curr_frame
             jobs[job_id]["total_frames"] = total_frames
             jobs[job_id]["eta"] = eta_str
-            jobs[job_id]["message"] = f"Frame {curr_frame}/{total_frames} (ETA: {eta_str})"
+            jobs[job_id]["message"] = f"Part {part_number} • Frame {curr_frame}/{total_frames} (ETA: {eta_str})"
+
+            if preview_img is not None:
+                try:
+                    h, w = preview_img.shape[:2]
+                    scale = min(1.0, 360.0 / max(1, w))
+                    thumb = cv2.resize(preview_img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA) if scale < 1.0 else preview_img
+                    ret, buf = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    if ret:
+                        jobs[job_id]["preview_frame"] = base64.b64encode(buf).decode("ascii")
+                except Exception as ex:
+                    pass
+
 
         engine.process_video(
             source_img_paths=source_path,
             target_video_path=target_path,
             output_video_path=output_path,
             max_duration_sec=max_duration,
+            start_offset_sec=start_offset,
             target_person_id=target_person_id,
             target_person_embedding=target_person_embedding,
             use_enhancer=use_enhancer,
@@ -174,34 +203,31 @@ def run_video_swap_job(
             fidelity=fidelity,
             color_strength=color_strength,
             sharpen_amount=sharpen_amount,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            multi_person_sources=jobs[job_id].get("multi_person_sources")
         )
         
         jobs[job_id]["status"] = JobStatus.COMPLETED
         jobs[job_id]["progress"] = 100
-        jobs[job_id]["message"] = "Face swap completed successfully!"
+        jobs[job_id]["message"] = f"Part {part_number} completed successfully!"
         jobs[job_id]["output_url"] = f"/outputs/{output_filename}"
         jobs[job_id]["download_url"] = f"/api/download/{output_filename}"
+        jobs[job_id]["output_filename"] = output_filename
+        jobs[job_id]["output_path"] = output_path
         jobs[job_id]["type"] = "video"
+        jobs[job_id]["part_number"] = part_number
+        jobs[job_id]["start_offset"] = start_offset
+        jobs[job_id]["duration"] = max_duration
         jobs[job_id]["fidelity"] = fidelity
         jobs[job_id]["color_strength"] = color_strength
         jobs[job_id]["sharpen_amount"] = sharpen_amount
         
     except Exception as e:
-        print(f"Job {job_id} error: {e}")
+        print(f"Video Job {job_id} error: {e}")
         jobs[job_id]["status"] = JobStatus.FAILED
         jobs[job_id]["message"] = str(e)
         jobs[job_id]["error"] = str(e)
 
-@app.on_event("startup")
-def on_startup():
-    print("Pre-loading AI models (InSwapper + GFPGAN HD) on server startup...")
-    try:
-        engine = FaceSwapEngine.get_instance()
-        engine.initialize()
-        print(f"AI Engine Preloaded! InSwapper: {engine.swapper is not None}, GFPGAN 1.4 HD: {engine.enhancer_session is not None}")
-    except Exception as e:
-        print(f"Preload warning: {e}")
 
 @app.get("/api/status")
 def get_engine_status():
@@ -220,8 +246,12 @@ def get_engine_status():
 
 @app.post("/api/swap-photo")
 async def swap_photo(
-    source_files: Optional[List[UploadFile]] = File(None),
     source_file: Optional[UploadFile] = File(None),
+    source_files: Optional[List[UploadFile]] = File(None),
+    source_person_0_files: Optional[List[UploadFile]] = File(None),
+    source_person_1_files: Optional[List[UploadFile]] = File(None),
+    source_person_2_files: Optional[List[UploadFile]] = File(None),
+    source_person_3_files: Optional[List[UploadFile]] = File(None),
     source_template: Optional[str] = Form(None),
     target_file: Optional[UploadFile] = File(None),
     target_template: Optional[str] = Form(None),
@@ -229,31 +259,61 @@ async def swap_photo(
     use_grain: bool = Form(True)
 ):
     job_id = str(uuid.uuid4())[:8]
+    engine = FaceSwapEngine.get_instance()
+    engine.initialize()
     
-    # 1. Source Face Path(s) (Support 1 to 4 uploaded source photos for 3D master fusion)
+    # 1. Multi-Person Sources Check
+    multi_person_sources = []
+    person_buckets = [source_person_0_files, source_person_1_files, source_person_2_files, source_person_3_files]
+    
+    for p_idx, p_files in enumerate(person_buckets):
+        if p_files and len(p_files) > 0 and any(f.filename for f in p_files):
+            p_paths = []
+            for f_idx, pf in enumerate([f for f in p_files if f.filename][:4]):
+                src_ext = os.path.splitext(pf.filename)[1] or ".jpg"
+                p = os.path.join(UPLOAD_DIR, f"src_p{p_idx}_{job_id}_{f_idx}{src_ext}")
+                with open(p, "wb") as f:
+                    f.write(await pf.read())
+                p_paths.append(p)
+            if p_paths:
+                imgs = [cv2.imread(x) for x in p_paths if cv2.imread(x) is not None]
+                if imgs:
+                    s_face = engine.get_face(imgs[0])
+                    s_emb = engine.get_multi_source_master_embedding(imgs)
+                    multi_person_sources.append({
+                        'person_idx': p_idx,
+                        'source_face': s_face,
+                        'source_embedding': s_emb,
+                        'source_paths': p_paths
+                    })
+
+    # Standard Single-Person fallback
     src_paths = []
-    all_source_uploads = []
-    if source_files:
-        all_source_uploads.extend([f for f in source_files if f and f.filename])
-    if source_file and source_file.filename and source_file not in all_source_uploads:
-        all_source_uploads.append(source_file)
+    if not multi_person_sources:
+        all_source_uploads = []
+        if source_files:
+            all_source_uploads.extend([f for f in source_files if f and f.filename])
+        if source_file and source_file.filename and source_file not in all_source_uploads:
+            all_source_uploads.append(source_file)
 
-    if all_source_uploads:
-        for idx, s_file in enumerate(all_source_uploads[:4]):
-            src_ext = os.path.splitext(s_file.filename)[1] or ".jpg"
-            p = os.path.join(UPLOAD_DIR, f"src_photo_{job_id}_{idx}{src_ext}")
-            with open(p, "wb") as f:
-                f.write(await s_file.read())
-            src_paths.append(p)
-    elif source_template:
-        t_path = os.path.join(SAMPLES_DIR, source_template)
-        if not os.path.exists(t_path):
-            raise HTTPException(status_code=404, detail=f"Source template {source_template} not found")
-        src_paths.append(t_path)
+        if all_source_uploads:
+            for idx, s_file in enumerate(all_source_uploads[:4]):
+                src_ext = os.path.splitext(s_file.filename)[1] or ".jpg"
+                p = os.path.join(UPLOAD_DIR, f"src_photo_{job_id}_{idx}{src_ext}")
+                with open(p, "wb") as f:
+                    f.write(await s_file.read())
+                src_paths.append(p)
+        elif source_template:
+            t_path = os.path.join(SAMPLES_DIR, source_template)
+            if not os.path.exists(t_path):
+                raise HTTPException(status_code=404, detail=f"Source template {source_template} not found")
+            src_paths.append(t_path)
+        else:
+            raise HTTPException(status_code=400, detail="Please upload source input photo(s) or select a preset.")
     else:
-        raise HTTPException(status_code=400, detail="Please upload source input photo(s) or select a preset.")
+        src_paths = multi_person_sources[0]['source_paths']
 
-    # 2. Target Photo Path (Right side - Jisme face swap karna h)
+    # 2. Target Photo Path
     if target_file and target_file.filename:
         tgt_ext = os.path.splitext(target_file.filename)[1] or ".jpg"
         tgt_path = os.path.join(UPLOAD_DIR, f"tgt_photo_{job_id}{tgt_ext}")
@@ -272,34 +332,37 @@ async def swap_photo(
         "type": "photo",
         "status": JobStatus.QUEUED,
         "progress": 0,
-        "message": f"Queued with {len(src_paths)} source photo(s) for 3D Identity Fusion...",
+        "message": f"Queued with {len(multi_person_sources) if multi_person_sources else len(src_paths)} person face(s)...",
         "created_at": time.time(),
         "source_path": primary_src,
         "source_paths": src_paths,
+        "multi_person_sources": multi_person_sources,
         "target_path": tgt_path,
         "use_enhancer": use_enhancer,
         "use_grain": use_grain,
         "iteration": 1,
-        "fidelity": 0.85,
-        "color_strength": 0.28,
+        "fidelity": 0.92,
+        "color_strength": 0.15,
         "sharpen_amount": 0.15
     }
 
     thread = threading.Thread(
         target=run_photo_swap_job,
-        args=(job_id, src_paths if len(src_paths) > 1 else primary_src, tgt_path, use_enhancer, use_grain, 0.85, 0.28, 0.15),
+        args=(
+            job_id,
+            src_paths,
+            tgt_path,
+            use_enhancer,
+            use_grain,
+            0.92,
+            0.15,
+            0.15
+        ),
         daemon=True
     )
     thread.start()
-
-    return {
-        "job_id": job_id,
-        "type": "photo",
-        "iteration": 1,
-        "num_sources": len(src_paths),
-        "status": "queued",
-        "message": f"Photo face swap started with {len(src_paths)} source photo(s)!"
-    }
+    
+    return {"job_id": job_id, "status": "queued"}
 
 @app.post("/api/extract-video-faces")
 async def extract_video_faces(
@@ -337,42 +400,78 @@ async def extract_video_faces(
 
 @app.post("/api/swap-video")
 async def swap_video(
-    source_files: Optional[List[UploadFile]] = File(None),
     source_file: Optional[UploadFile] = File(None),
+    source_files: Optional[List[UploadFile]] = File(None),
+    source_person_0_files: Optional[List[UploadFile]] = File(None),
+    source_person_1_files: Optional[List[UploadFile]] = File(None),
+    source_person_2_files: Optional[List[UploadFile]] = File(None),
+    source_person_3_files: Optional[List[UploadFile]] = File(None),
     source_template: Optional[str] = Form(None),
     target_video: Optional[UploadFile] = File(None),
     target_template: Optional[str] = Form(None),
     max_duration: float = Form(30.0),
+    start_offset: float = Form(0.0),
+    part_number: int = Form(1),
     target_person_id: Optional[int] = Form(None),
     target_person_embedding: Optional[str] = Form(None),
-    use_enhancer: bool = Form(True),
+    use_enhancer: bool = Form(False),
     use_smoothing: bool = Form(True),
     use_grain: bool = Form(True)
 ):
     job_id = str(uuid.uuid4())[:8]
+    engine = FaceSwapEngine.get_instance()
+    engine.initialize()
     
-    # 1. Source Face Path(s)
-    src_paths = []
-    all_source_uploads = []
-    if source_files:
-        all_source_uploads.extend([f for f in source_files if f and f.filename])
-    if source_file and source_file.filename and source_file not in all_source_uploads:
-        all_source_uploads.append(source_file)
+    # 1. Multi-Person Sources Check
+    multi_person_sources = []
+    person_buckets = [source_person_0_files, source_person_1_files, source_person_2_files, source_person_3_files]
+    
+    for p_idx, p_files in enumerate(person_buckets):
+        if p_files and len(p_files) > 0 and any(f.filename for f in p_files):
+            p_paths = []
+            for f_idx, pf in enumerate([f for f in p_files if f.filename][:4]):
+                src_ext = os.path.splitext(pf.filename)[1] or ".jpg"
+                p = os.path.join(UPLOAD_DIR, f"src_p{p_idx}_{job_id}_{f_idx}{src_ext}")
+                with open(p, "wb") as f:
+                    f.write(await pf.read())
+                p_paths.append(p)
+            if p_paths:
+                imgs = [cv2.imread(x) for x in p_paths if cv2.imread(x) is not None]
+                if imgs:
+                    s_face = engine.get_face(imgs[0])
+                    s_emb = engine.get_multi_source_master_embedding(imgs)
+                    multi_person_sources.append({
+                        'person_idx': p_idx,
+                        'source_face': s_face,
+                        'source_embedding': s_emb,
+                        'source_paths': p_paths
+                    })
 
-    if all_source_uploads:
-        for idx, s_file in enumerate(all_source_uploads[:4]):
-            src_ext = os.path.splitext(s_file.filename)[1] or ".jpg"
-            p = os.path.join(UPLOAD_DIR, f"src_vid_{job_id}_{idx}{src_ext}")
-            with open(p, "wb") as f:
-                f.write(await s_file.read())
-            src_paths.append(p)
-    elif source_template:
-        t_path = os.path.join(SAMPLES_DIR, source_template)
-        if not os.path.exists(t_path):
-            raise HTTPException(status_code=404, detail=f"Source template {source_template} not found")
-        src_paths.append(t_path)
+    # Standard Single-Person fallback
+    src_paths = []
+    if not multi_person_sources:
+        all_source_uploads = []
+        if source_files:
+            all_source_uploads.extend([f for f in source_files if f and f.filename])
+        if source_file and source_file.filename and source_file not in all_source_uploads:
+            all_source_uploads.append(source_file)
+
+        if all_source_uploads:
+            for idx, s_file in enumerate(all_source_uploads[:4]):
+                src_ext = os.path.splitext(s_file.filename)[1] or ".jpg"
+                p = os.path.join(UPLOAD_DIR, f"src_vid_{job_id}_{idx}{src_ext}")
+                with open(p, "wb") as f:
+                    f.write(await s_file.read())
+                src_paths.append(p)
+        elif source_template:
+            t_path = os.path.join(SAMPLES_DIR, source_template)
+            if not os.path.exists(t_path):
+                raise HTTPException(status_code=404, detail=f"Source template {source_template} not found")
+            src_paths.append(t_path)
+        else:
+            raise HTTPException(status_code=400, detail="Please upload source input photo(s) or select a preset.")
     else:
-        raise HTTPException(status_code=400, detail="Please upload a source face photo or select a template.")
+        src_paths = multi_person_sources[0]['source_paths']
 
     # 2. Target Video Path
     if target_video and target_video.filename:
@@ -387,7 +486,20 @@ async def swap_video(
     else:
         raise HTTPException(status_code=400, detail="Please upload a target video or select a sample video.")
 
-    max_duration = min(30.0, max(1.0, float(max_duration)))
+    # Calculate video total duration
+    cap_temp = cv2.VideoCapture(tgt_path)
+    fps_temp = cap_temp.get(cv2.CAP_PROP_FPS) or 25.0
+    frames_temp = cap_temp.get(cv2.CAP_PROP_FRAME_COUNT)
+    total_video_duration = frames_temp / fps_temp if frames_temp > 0 else 30.0
+    cap_temp.release()
+
+    start_offset = max(0.0, float(start_offset))
+    part_number = max(1, int(part_number))
+    chunk_duration = min(30.0, max(1.0, float(max_duration)))
+    
+    end_offset = min(total_video_duration, start_offset + chunk_duration)
+    has_more_parts = (total_video_duration > start_offset + chunk_duration) and (start_offset + chunk_duration < 120.0)
+    next_start_offset = start_offset + chunk_duration if has_more_parts else None
 
     emb_list = None
     if target_person_embedding:
@@ -405,26 +517,32 @@ async def swap_video(
         "current_frame": 0,
         "total_frames": 0,
         "eta": "Calculating...",
-        "message": f"Job queued with {len(src_paths)} source photo(s)...",
+        "message": f"Part {part_number} queued with {len(src_paths)} source photo(s)...",
         "created_at": time.time(),
         "source_path": primary_src,
         "source_paths": src_paths,
         "target_path": tgt_path,
-        "max_duration": max_duration,
+        "max_duration": chunk_duration,
+        "start_offset": start_offset,
+        "end_offset": end_offset,
+        "part_number": part_number,
+        "total_video_duration": total_video_duration,
+        "has_more_parts": has_more_parts,
+        "next_start_offset": next_start_offset,
         "target_person_id": target_person_id,
         "target_person_embedding": emb_list,
         "use_enhancer": use_enhancer,
         "use_smoothing": use_smoothing,
         "use_grain": use_grain,
         "iteration": 1,
-        "fidelity": 0.85,
-        "color_strength": 0.28,
+        "fidelity": 0.92,
+        "color_strength": 0.15,
         "sharpen_amount": 0.15
     }
 
     thread = threading.Thread(
         target=run_video_swap_job,
-        args=(job_id, src_paths if len(src_paths) > 1 else primary_src, tgt_path, max_duration, target_person_id, emb_list, use_enhancer, use_smoothing, use_grain, 0.85, 0.28, 0.15),
+        args=(job_id, src_paths if len(src_paths) > 1 else primary_src, tgt_path, chunk_duration, start_offset, part_number, target_person_id, emb_list, use_enhancer, use_smoothing, use_grain, 0.92, 0.15, 0.15),
         daemon=True
     )
     thread.start()
@@ -433,10 +551,64 @@ async def swap_video(
         "job_id": job_id,
         "type": "video",
         "iteration": 1,
+        "part_number": part_number,
+        "start_offset": start_offset,
+        "end_offset": end_offset,
+        "total_video_duration": total_video_duration,
+        "has_more_parts": has_more_parts,
+        "next_start_offset": next_start_offset,
         "num_sources": len(src_paths),
         "status": "queued",
-        "message": f"Video face swap started with {len(src_paths)} source photo(s)!"
+        "message": f"Part {part_number} ({int(start_offset)}s - {int(end_offset)}s) face swap started!"
     }
+
+class MergeVideoPartsRequest(BaseModel):
+    job_ids: Optional[List[str]] = None
+    filenames: Optional[List[str]] = None
+
+@app.post("/api/merge-video-parts")
+async def merge_video_parts(req: MergeVideoPartsRequest):
+    """
+    Merges multiple processed video parts (Part 1, Part 2, etc.) into 1 continuous final video.
+    """
+    input_files = []
+    if req.job_ids:
+        for jid in req.job_ids:
+            if jid in jobs and jobs[jid].get("status") == JobStatus.COMPLETED:
+                p = jobs[jid].get("output_path")
+                if p and os.path.exists(p):
+                    input_files.append(p)
+            else:
+                out_path = os.path.join(OUTPUT_DIR, f"swapped_{jid}.mp4")
+                if os.path.exists(out_path):
+                    input_files.append(out_path)
+    elif req.filenames:
+        for fn in req.filenames:
+            p = os.path.join(OUTPUT_DIR, fn)
+            if os.path.exists(p):
+                input_files.append(p)
+                
+    if len(input_files) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 completed video parts are required to merge.")
+
+    merge_id = str(uuid.uuid4())[:8]
+    merged_filename = f"merged_{merge_id}.mp4"
+    merged_output_path = os.path.join(OUTPUT_DIR, merged_filename)
+
+    engine = FaceSwapEngine.get_instance()
+    try:
+        engine.merge_video_files(input_files, merged_output_path)
+        return {
+            "status": "completed",
+            "merge_id": merge_id,
+            "parts_merged": len(input_files),
+            "merged_url": f"/outputs/{merged_filename}",
+            "download_url": f"/api/download/{merged_filename}",
+            "message": f"Successfully merged {len(input_files)} video parts into 1 complete video!"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Merge failed: {str(e)}")
+
 
 @app.post("/api/regenerate")
 async def regenerate_swap(req: RegenerateRequest):
@@ -476,28 +648,36 @@ async def regenerate_swap(req: RegenerateRequest):
     use_smoothing = prev_job.get("use_smoothing", True) if req.use_smoothing is None else req.use_smoothing
 
     if preset == "max_likeness":
-        # Strict preservation of original face identity & natural complexion
-        fidelity = 0.95
-        color_strength = 0.16
-        sharpen_amount = 0.20
-        preset_title = "Max Input Likeness (100% Face Identity Match)"
+        # 100% Pure Input Face Copy: 100% source identity, zero lighting shift, natural skin
+        use_enhancer = True
+        use_grain = False
+        fidelity = 1.0
+        color_strength = 0.0
+        sharpen_amount = 0.12
+        preset_title = "100% Pure Input Face Copy (Exact Identity Match)"
     elif preset == "ultra_hd":
-        # Maximum GFPGAN pore restoration & crisp eye sharpness
-        fidelity = 0.92
-        color_strength = 0.26
-        sharpen_amount = 0.32
+        # Ultra-HD: Maximum GFPGAN pore restoration & intense crisp eye sharpening
+        use_enhancer = True
+        use_grain = True
+        fidelity = 0.88
+        color_strength = 0.15
+        sharpen_amount = 0.52
         preset_title = "Ultra-HD & Sharp Eyes (Max GFPGAN Detail)"
     elif preset == "ambient_blend":
-        # Natural lighting blend with scene
-        fidelity = 0.82
-        color_strength = 0.38
-        sharpen_amount = 0.10
+        # Cinematic Ambient Blend: Deep scene lighting harmonization & soft shadow integration
+        use_enhancer = True
+        use_grain = True
+        fidelity = 0.78
+        color_strength = 0.55
+        sharpen_amount = 0.0
         preset_title = "Cinematic Ambient Lighting & Seamless Blend"
     elif preset == "auto_improve":
-        # Progressive improvement pass
-        fidelity = min(0.96, 0.85 + (new_iteration - 1) * 0.05)
-        color_strength = max(0.18, 0.28 - (new_iteration - 1) * 0.04)
-        sharpen_amount = min(0.30, 0.15 + (new_iteration - 1) * 0.05)
+        # Smart AI Improvement
+        use_enhancer = True
+        use_grain = True
+        fidelity = min(0.96, 0.88 + (new_iteration - 1) * 0.04)
+        color_strength = max(0.15, 0.25 - (new_iteration - 1) * 0.03)
+        sharpen_amount = min(0.35, 0.20 + (new_iteration - 1) * 0.05)
         preset_title = f"Smart AI Improvement (Iteration {new_iteration})"
     else: # custom sliders
         fidelity = req.fidelity if req.fidelity is not None else 0.88
