@@ -82,7 +82,22 @@ main_gfpgan = os.path.join(MODELS_DIR, "gfpgan_1.4.onnx")
 if os.path.exists(main_gfpgan) and not os.path.exists(alt_gfpgan):
     shutil.copyfile(main_gfpgan, alt_gfpgan)
 
-# 2. Setup Cloudflared Tunnel
+# 2. Setup CUDA / cuDNN library paths for ONNX Runtime GPU on Kaggle / Colab
+import glob
+cuda_lib_paths = []
+for p in sys.path:
+    if os.path.exists(p):
+        cuda_lib_paths.extend(glob.glob(os.path.join(p, "nvidia", "*", "lib")))
+        cuda_lib_paths.extend(glob.glob(os.path.join(p, "torch", "lib")))
+
+if os.path.exists("/usr/local/cuda/lib64"):
+    cuda_lib_paths.append("/usr/local/cuda/lib64")
+
+server_env = os.environ.copy()
+current_ld = server_env.get("LD_LIBRARY_PATH", "")
+server_env["LD_LIBRARY_PATH"] = ":".join(cuda_lib_paths) + (":" + current_ld if current_ld else "")
+
+# 3. Setup Cloudflared Tunnel
 cloudflared_path = shutil.which("cloudflared") or os.path.join(BASE_DIR, "cloudflared")
 
 if not os.path.exists(cloudflared_path) and not shutil.which("cloudflared"):
@@ -98,14 +113,14 @@ if not os.path.exists(cloudflared_path) and not shutil.which("cloudflared"):
     except Exception as e:
         print(f"Tunnel download notice: {e}")
 
-# 3. Start Backend Uvicorn Server in Background
+# 4. Start Backend Uvicorn Server with CUDA Environment
 print("🚀 Starting FastAPI Face Swap Server on Port 8000...")
 server_cmd = [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-server_proc = subprocess.Popen(server_cmd, cwd=BACKEND_DIR)
+server_proc = subprocess.Popen(server_cmd, cwd=BACKEND_DIR, env=server_env)
 
 time.sleep(2)
 
-# 4. Start Cloudflare Tunnel
+# 5. Start Cloudflare Tunnel
 print("🔗 Launching Free Public HTTPS Tunnel...")
 tunnel_cmd = [cloudflared_path, "tunnel", "--url", "http://localhost:8000"]
 tunnel_proc = subprocess.Popen(tunnel_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
