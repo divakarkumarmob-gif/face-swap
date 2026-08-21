@@ -549,12 +549,18 @@ class FaceSwapEngine:
             progress_callback(40, "Loading Face Analysis AI (InsightFace)...")
             
         available_providers = onnxruntime.get_available_providers()
+        ai_providers = ['CPUExecutionProvider']
         if 'CUDAExecutionProvider' in available_providers:
-            ai_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-            print("[FaceSwapEngine] 🚀 NVIDIA CUDA GPU Acceleration Enabled!")
+            try:
+                # Verify CUDA provider is actually functional
+                test_sess = onnxruntime.InferenceSession(self.model_path, providers=['CUDAExecutionProvider'])
+                ai_providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+                print("[FaceSwapEngine] 🚀 NVIDIA CUDA GPU Acceleration VERIFIED & ACTIVE!")
+            except Exception as e:
+                print(f"[FaceSwapEngine] ⚠️ CUDA Provider available but session failed ({e}). Falling back to CPU.")
+                ai_providers = ['CPUExecutionProvider']
         else:
-            ai_providers = ['CPUExecutionProvider']
-            print("[FaceSwapEngine] Running on CPU Mode")
+            print("[FaceSwapEngine] ℹ️ CUDA not found in available providers. Running on CPU Mode.")
         
         # Load detection and recognition
         self.app = FaceAnalysis(name='buffalo_l', providers=ai_providers, allowed_modules=['detection', 'recognition'])
